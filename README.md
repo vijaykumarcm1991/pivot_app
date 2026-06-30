@@ -7,6 +7,15 @@ reusable metadata, configuring pivots in the browser, and computing pivots on
 the backend. Future phases will add export, scheduled reports and stakeholder
 mailing.
 
+## Recent Updates
+
+| Commit    | Description                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------------- |
+| `f782c81` | Fix pivot grid: use `colDefs` (defined) instead of undefined `columnDefs` — AG Grid now renders.  |
+| `7bfba51` | Fix bug: uploaded dataset not showing in pivot page dropdown (defensive init + lazy filter modal). |
+| `e645b28` | Dark mode: fix black/grey text on white background contrast issues.                               |
+| `705ef4e` | Phase 1-3 implementation + dark / light / system theme shipped.                                  |
+
 ## Tech Stack
 
 | Layer    | Technology                                 |
