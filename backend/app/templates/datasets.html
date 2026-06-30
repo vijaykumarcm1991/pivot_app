@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Datasets — Pivot App{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold"><i class="bi bi-folder2-open me-2 text-warning"></i>Datasets</h2>
+  <a href="/" class="btn btn-primary btn-sm">
+    <i class="bi bi-plus-lg me-1"></i>New Upload
+  </a>
+</div>
+
+{% if datasets %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>#</th>
+            <th>Filename</th>
+            <th>Rows</th>
+            <th>Columns</th>
+            <th>Uploaded At</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ds in datasets %}
+          <tr>
+            <td class="text-muted small">{{ ds.id }}</td>
+            <td>
+              <i class="bi bi-file-earmark-spreadsheet text-success me-1"></i>
+              <strong>{{ ds.filename }}</strong>
+            </td>
+            <td>{{ ds.total_rows }}</td>
+            <td>{{ ds.total_columns }}</td>
+            <td class="text-muted small">{{ ds.upload_time.strftime('%d %b %Y, %H:%M') }}</td>
+            <td>
+              <a href="/preview/{{ ds.id }}" class="btn btn-sm btn-outline-primary me-1">
+                <i class="bi bi-eye me-1"></i>Preview
+              </a>
+              <a href="/manage?dataset_id={{ ds.id }}" class="btn btn-sm btn-outline-secondary me-1">
+                <i class="bi bi-sliders me-1"></i>Manage
+              </a>
+              <button class="btn btn-sm btn-outline-danger" data-delete-dataset-id="{{ ds.id }}" data-delete-dataset-name="{{ ds.filename }}">
+                <i class="bi bi-trash me-1"></i>Delete
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% else %}
+<div class="text-center py-5">
+  <i class="bi bi-inbox display-3 text-muted"></i>
+  <p class="mt-3 text-muted">No datasets uploaded yet.</p>
+  <a href="/" class="btn btn-primary"><i class="bi bi-upload me-2"></i>Upload your first file</a>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  document.querySelectorAll("[data-delete-dataset-id]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const id       = btn.getAttribute("data-delete-dataset-id");
+      const filename = btn.getAttribute("data-delete-dataset-name") || "";
+      if (!confirm(`Delete dataset "${filename}"? This will also remove the uploaded file and all metadata.`)) {
+        return;
+      }
+      deleteDataset(id);
+    });
+  });
+
+  async function deleteDataset(id) {
+    try {
+      const res = await fetch(`/api/dataset/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok) {
+        alert("Dataset deleted successfully!");
+        window.location.reload();
+      } else {
+        alert(`Delete failed: ${data.detail || "Unknown error"}`);
+      }
+    } catch (err) {
+      alert("Network error occurred while deleting dataset.");
+      console.error(err);
+    }
+  }
+})();
+</script>
+{% endblock %}

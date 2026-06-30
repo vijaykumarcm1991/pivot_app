@@ -1,0 +1,175 @@
+Phase 1 is complete and working well. I'd like to continue building the project without changing anything that already works.
+
+In this phase I'd like to build a proper dataset management layer that will become the foundation for the pivot engine.
+
+Right now uploaded Excel files can be previewed. Instead of treating them as temporary uploads, I'd like the application to manage them as reusable datasets.
+
+Please implement the following.
+
+When an Excel file is uploaded:
+
+- Read every sheet in the workbook.
+- Store metadata about the workbook.
+- Store metadata about each sheet.
+- Store metadata about every column.
+
+I don't want to repeatedly inspect the Excel file every time a pivot is generated. The application should know the dataset structure beforehand.
+
+For every column, automatically detect the datatype.
+
+Support at least these datatypes:
+
+- Text
+- Integer
+- Decimal
+- Date
+- Boolean
+
+If a column contains Excel dates or values that pandas can reliably identify as dates, treat it as a Date column.
+
+Also determine whether each column is nullable.
+
+Create separate database tables for:
+
+Datasets
+Sheets
+Columns
+
+Each dataset should know:
+
+- filename
+- stored filename
+- upload timestamp
+- total sheets
+- total rows
+- total columns
+
+Each sheet should know:
+
+- dataset
+- sheet name
+- row count
+
+Each column should know:
+
+- dataset
+- sheet
+- column name
+- datatype
+- nullable
+
+Next I'd like a Dataset Management page.
+
+This page should show:
+
+A list of uploaded datasets.
+
+When I select a dataset, I should see:
+
+- workbook information
+- available sheets
+- total rows
+- total columns
+
+When I select a sheet, I should see:
+
+- first 100 rows
+- column names
+- detected datatypes
+
+Please create clean REST APIs for this page.
+
+I'd like APIs to:
+
+- list datasets
+- get dataset details
+- list sheets
+- return column metadata
+- return a preview of any sheet
+
+Please keep the code modular.
+
+I'd like separate services responsible for:
+
+- dataset processing
+- datatype detection
+- metadata extraction
+- preview generation
+
+Please avoid putting business logic inside route files.
+
+For the UI, continue using Bootstrap 5 and vanilla JavaScript.
+
+Please add loading indicators while switching datasets or sheets.
+
+If anything goes wrong, show friendly error messages instead of stack traces.
+
+At the end, I'd also like a small statistics section showing things like:
+
+- number of uploaded datasets
+- total rows in the selected dataset
+- total sheets
+- total detected date columns
+- total numeric columns
+
+Please don't start implementing pivot tables yet.
+
+This phase should only make the uploaded datasets reusable and prepare the application for the pivot engine in the next phase.
+
+Once everything is finished, please provide:
+
+- updated folder structure
+- database schema
+- API list
+- any migrations required
+- startup instructions if anything changed
+
+Please verify all of the following before considering this phase complete.
+
+1. Upload an Excel file with one sheet.
+Expected:
+Dataset appears in the Dataset Management page.
+
+2. Upload an Excel file with multiple sheets.
+Expected:
+All sheets are detected correctly.
+
+3. Select a different sheet.
+Expected:
+The preview updates correctly.
+
+4. Verify datatype detection.
+Expected:
+Text, Number, Date and Boolean columns are identified correctly.
+
+5. Verify nullable detection.
+Expected:
+Columns containing empty values are marked correctly.
+
+6. Verify the first 100 rows are displayed.
+Expected:
+Preview loads without reading the entire workbook again.
+
+7. Restart the application.
+Expected:
+Previously uploaded datasets are still available.
+
+8. Verify the Dataset Management page.
+Expected:
+Dataset information, sheets and metadata are displayed correctly.
+
+9. Call every Dataset API manually.
+Expected:
+Each endpoint returns the expected data.
+
+10. Upload a workbook with around 10,000 rows.
+Expected:
+Upload succeeds and metadata generation completes without errors.
+
+11. Upload a workbook containing invalid or mixed data.
+Expected:
+The application handles it gracefully and still generates usable metadata wherever possible.
+
+12. Review the code.
+Expected:
+Business logic is inside services, route files remain small, and the project structure is clean and easy to extend.

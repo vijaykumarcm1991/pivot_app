@@ -1,0 +1,121 @@
+Let's build a new project called Pivot App from scratch.
+
+The purpose of this application is to let users upload Excel files, create Excel-like pivot tables in the browser, and eventually send emails based on selected pivot rows. We'll build it in phases, so for now I'd like to focus only on creating a solid foundation.
+
+Please use the following stack:
+
+- FastAPI for the backend
+- Jinja2 templates for rendering pages
+- Bootstrap 5 for the UI
+- Vanilla JavaScript (no React, Vue or Angular)
+- SQLite for storage
+- pandas and openpyxl for reading Excel files
+- Docker Compose for deployment
+- Nginx as the reverse proxy
+
+I want to keep this project simple, easy to maintain, and organized. Please separate routes, services, repositories, templates, static files and utility functions instead of putting everything into one file.
+
+For this phase, please implement the following:
+
+1. Create the complete project structure.
+
+2. Configure FastAPI with Jinja2 templates and static file support.
+
+3. Create a clean home page with Bootstrap.
+
+4. Add an Upload Excel page.
+
+5. Allow users to upload .xlsx and .csv files.
+
+6. Validate the uploaded file type before processing.
+
+7. Save uploaded files into an uploads directory using unique filenames so files never overwrite each other.
+
+8. Read the uploaded Excel file using pandas.
+
+9. If there are multiple sheets, detect all of them.
+
+10. Display:
+   - original filename
+   - available sheets
+   - total number of rows
+   - total number of columns
+   - column names
+   - first 20 rows as a preview
+
+11. Store basic dataset information in SQLite. At this stage I only need:
+   - filename
+   - stored filename
+   - upload time
+   - total rows
+   - total columns
+
+12. Create clean API endpoints for uploading files and retrieving uploaded dataset information.
+
+13. Show friendly error messages if:
+   - the file format is invalid
+   - the Excel file is empty
+   - the upload fails
+   - the Excel file cannot be read
+
+14. Add loading indicators while a file is being uploaded.
+
+15. Configure Docker Compose so the application can be started with a single command.
+
+16. Keep the code modular because later phases will add:
+   - pivot tables
+   - drill-down
+   - email generation
+   - report scheduling
+
+Please don't start implementing pivot functionality yet. This phase should only create a clean and reusable foundation for the rest of the project.
+
+Once everything is finished, also provide:
+
+- project folder structure
+- database schema
+- API list
+- startup instructions
+- anything I need to verify before moving to the next phase.
+
+Please verify the following before considering Phase 1 complete.
+
+1. Upload a normal Excel file.
+Expected:
+The upload succeeds and a preview is displayed.
+
+2. Upload a CSV file.
+Expected:
+The preview is generated correctly.
+
+3. Upload an unsupported file type such as PDF.
+Expected:
+The upload is rejected with a clear validation message.
+
+4. Upload an Excel file with multiple sheets.
+Expected:
+All sheet names are detected correctly.
+
+5. Upload an empty Excel file.
+Expected:
+A user-friendly error is shown.
+
+6. Restart the application.
+Expected:
+Previously uploaded files still exist in the uploads folder.
+
+7. Check the database.
+Expected:
+Dataset metadata has been stored correctly.
+
+8. Verify the preview table.
+Expected:
+Only the first 20 rows are shown.
+
+9. Verify Docker Compose.
+Expected:
+The application starts successfully with a single command.
+
+10. Review the project structure.
+Expected:
+Routes, services, repositories, templates and utilities are separated cleanly.

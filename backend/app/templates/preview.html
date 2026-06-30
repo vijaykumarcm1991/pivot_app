@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Preview — {{ dataset.filename }}{% endblock %}
+
+{% block content %}
+
+<!-- Breadcrumb -->
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/">Upload</a></li>
+    <li class="breadcrumb-item"><a href="/datasets">Datasets</a></li>
+    <li class="breadcrumb-item active">{{ dataset.filename }}</li>
+  </ol>
+</nav>
+
+<!-- Dataset info cards -->
+<div class="row g-3 mb-4">
+  <div class="col-12">
+    <h3 class="fw-bold">
+      <i class="bi bi-file-earmark-spreadsheet text-success me-2"></i>{{ dataset.filename }}
+    </h3>
+    <p class="text-muted small mb-0">Uploaded {{ dataset.upload_time.strftime('%d %b %Y, %H:%M') }} UTC</p>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="col-sm-4">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body">
+        <div class="display-6 fw-bold text-primary">{{ dataset.total_rows }}</div>
+        <div class="text-muted small">Total Rows</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body">
+        <div class="display-6 fw-bold text-info">{{ dataset.total_columns }}</div>
+        <div class="text-muted small">Columns</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body">
+        <div class="display-6 fw-bold text-warning">{{ sheets | length }}</div>
+        <div class="text-muted small">Sheet(s)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Sheet metadata -->
+{% if sheets | length > 1 %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white fw-semibold">
+    <i class="bi bi-layers me-2 text-secondary"></i>Sheets
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Sheet Name</th>
+            <th>Rows</th>
+            <th>Columns</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sheet in sheets %}
+          <tr>
+            <td>{{ sheet.sheet_name }}</td>
+            <td>{{ sheet.row_count }}</td>
+            <td>{{ sheet.column_names | length }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Column names -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-columns me-2 text-secondary"></i>Columns <span class="badge bg-secondary ms-2">{{ columns | length }}</span></span>
+    {% if column_types %}
+    <small class="text-muted">Showing first sheet's inferred datatypes</small>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <div class="d-flex flex-wrap gap-2">
+      {% for col in columns %}
+        <span class="badge rounded-pill bg-light text-dark border">
+          {{ col }}
+          {% if column_types and column_types[col] %}
+            <span class="ms-1 text-muted">· {{ column_types[col] }}</span>
+          {% endif %}
+        </span>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Data Preview -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-eye me-2 text-secondary"></i>Data Preview <span class="text-muted fw-normal small">(first {{ preview | length }} rows)</span></span>
+    <button class="btn btn-sm btn-outline-danger" data-delete-dataset-id="{{ dataset.id }}" data-delete-dataset-name="{{ dataset.filename }}">
+      <i class="bi bi-trash me-1"></i>Delete Dataset
+    </button>
+  </div>
+  <div class="card-body p-0">
+    {% if preview %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover table-striped mb-0">
+        <thead class="table-dark">
+          <tr>
+            {% for col in columns %}
+            <th class="text-nowrap">{{ col }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in preview %}
+          <tr>
+            {% for col in columns %}
+            <td class="text-nowrap small">{{ row[col] if row[col] is not none else '—' }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <div class="p-4 text-muted text-center">No data available.</div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  // Wire up delete buttons safely (no string interpolation into onclick).
+  document.querySelectorAll("[data-delete-dataset-id]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const id       = btn.getAttribute("data-delete-dataset-id");
+      const filename = btn.getAttribute("data-delete-dataset-name") || "";
+      if (!confirm(`Delete dataset "${filename}"? This will also remove the uploaded file and all metadata.`)) {
+        return;
+      }
+      deleteDataset(id, filename);
+    });
+  });
+
+  async function deleteDataset(id, filename) {
+    try {
+      const res = await fetch(`/api/dataset/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (res.ok) {
+        alert("Dataset deleted successfully!");
+        window.location.href = "/datasets";
+      } else {
+        alert(`Delete failed: ${data.detail || "Unknown error"}`);
+      }
+    } catch (err) {
+      alert("Network error occurred while deleting dataset.");
+      console.error(err);
+    }
+  }
+})();
+</script>
+{% endblock %}

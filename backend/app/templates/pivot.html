@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+{% block title %}Pivot Builder — Pivot App{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold"><i class="bi bi-table me-2 text-success"></i>Pivot Builder</h2>
+  <div>
+    <button id="validateBtn" class="btn btn-outline-info btn-sm me-2" disabled title="Validate configuration">
+      <i class="bi bi-shield-check me-1"></i>Validate
+    </button>
+    <button id="saveBtn" class="btn btn-outline-secondary btn-sm me-2" disabled title="Save pivot configuration">
+      <i class="bi bi-save me-1"></i>Save Config
+    </button>
+    <button id="exportBtn" class="btn btn-outline-success btn-sm me-2" disabled title="Export to Excel">
+      <i class="bi bi-download me-1"></i>Export
+    </button>
+    <button id="computeBtn" class="btn btn-primary btn-sm">
+      <i class="bi bi-calculator me-1"></i>Compute Pivot
+    </button>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- ── LEFT PANEL: Configuration ───────────────────────────────────────── -->
+  <div class="col-lg-4">
+
+    <!-- Dataset & sheet selection -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-file-earmark-spreadsheet me-2 text-success"></i>Source Data
+      </div>
+      <div class="card-body">
+        <div class="row g-2 mb-2">
+          <div class="col-7">
+            <label class="form-label small fw-bold">Dataset</label>
+            <select id="datasetSelect" class="form-select">
+              <option value="">— select a dataset —</option>
+            </select>
+          </div>
+          <div class="col-5">
+            <label class="form-label small fw-bold">Sheet</label>
+            <select id="sheetSelect" class="form-select" disabled>
+              <option value="">— select —</option>
+            </select>
+          </div>
+        </div>
+        <div class="alert alert-info small py-2 mb-0 mt-2" id="sourceInfo" style="display:none">
+          <i class="bi bi-info-circle me-1"></i>
+          <span id="sourceMeta">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rows (Row grouping) -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+        <span><i class="bi bi-list-nested me-2 text-primary"></i>Rows</span>
+        <span class="badge bg-light text-dark" id="rowsBadge">0</span>
+      </div>
+      <div class="card-body">
+        <select id="rowsSelect" class="form-select" multiple size="6" style="min-height: 120px" disabled></select>
+        <button id="addRowBtn" class="btn btn-outline-primary btn-sm w-100 mt-2">
+          <i class="bi bi-plus-lg me-1"></i>Add to Rows
+        </button>
+        <button id="removeRowBtn" class="btn btn-outline-secondary btn-sm w-100 mt-1" disabled>
+          <i class="bi bi-dash-lg me-1"></i>Remove Selected
+        </button>
+      </div>
+    </div>
+
+    <!-- Columns (Column grouping) -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+        <span><i class="bi bi-layout-three-columns me-2 text-info"></i>Columns</span>
+        <span class="badge bg-light text-dark" id="colsBadge">0</span>
+      </div>
+      <div class="card-body">
+        <select id="colsSelect" class="form-select" multiple size="6" style="min-height: 120px" disabled></select>
+        <button id="addColBtn" class="btn btn-outline-info btn-sm w-100 mt-2">
+          <i class="bi bi-plus-lg me-1"></i>Add to Columns
+        </button>
+        <button id="removeColBtn" class="btn btn-outline-secondary btn-sm w-100 mt-1" disabled>
+          <i class="bi bi-dash-lg me-1"></i>Remove Selected
+        </button>
+      </div>
+    </div>
+
+    <!-- Date Grouping (for datetime fields) -->
+    <div class="card border-0 shadow-sm mb-3" id="dateGroupingCard" style="display:none">
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+        <span><i class="bi bi-calendar3 me-2 text-warning"></i>Date Grouping</span>
+        <span class="badge bg-light text-dark" id="dateGroupingBadge">0</span>
+      </div>
+      <div class="card-body">
+        <div id="dateGroupingList" class="mb-3">
+          <!-- Will be populated with datetime field grouping controls -->
+        </div>
+        <div class="input-group input-group-sm">
+          <select id="dateFieldSelect" class="form-select" disabled>
+            <option value="">— date field —</option>
+          </select>
+          <select id="dateGroupSelect" class="form-select" style="max-width: 120px">
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+            <option value="quarter">Quarter</option>
+            <option value="year">Year</option>
+          </select>
+          <button id="addDateGroupBtn" class="btn btn-outline-warning" disabled>
+            <i class="bi bi-plus"></i>Add Grouping
+          </button>
+        </div>
+        <p class="small text-muted mt-2 mb-0">
+          <i class="bi bi-info-circle me-1"></i>Datetime fields in Rows/Columns will automatically be grouped.
+        </p>
+      </div>
+    </div>
+
+    <!-- Values (Aggregations) -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+        <span><i class="bi bi-calculator me-2 text-success"></i>Values</span>
+        <span class="badge bg-light text-dark" id="valuesBadge">0</span>
+      </div>
+      <div class="card-body">
+        <div id="valueList" class="mb-3"></div>
+        <div class="input-group input-group-sm">
+          <select id="valueFieldSelect" class="form-select" disabled>
+            <option value="">— field —</option>
+          </select>
+          <select id="valueAggSelect" class="form-select" style="max-width: 120px">
+            <option value="sum">Sum</option>
+            <option value="average">Average</option>
+            <option value="count">Count</option>
+            <option value="min">Min</option>
+            <option value="max">Max</option>
+          </select>
+          <button id="addValueBtn" class="btn btn-outline-success" disabled>
+            <i class="bi bi-plus"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-funnel me-2 text-warning"></i>Filters
+      </div>
+      <div class="card-body">
+        <div id="filterList"></div>
+        <div class="input-group input-group-sm">
+          <select id="filterFieldSelect" class="form-select" disabled>
+            <option value="">— field —</option>
+          </select>
+          <button id="addFilterBtn" class="btn btn-outline-warning" disabled>
+            <i class="bi bi-plus"></i>Add Filter
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter values modal (multi-select) -->
+    <div class="modal fade" id="filterModal" tabindex="-1" aria-labelledby="filterModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="filterModalLabel">Select filter values</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div class="input-group input-group-sm mb-2">
+              <span class="input-group-text"><i class="bi bi-search"></i></span>
+              <input id="filterSearch" type="text" class="form-control" placeholder="Search values…">
+            </div>
+            <div class="d-flex justify-content-between mb-2">
+              <button id="filterSelectAll" type="button" class="btn btn-sm btn-link p-0">Select all</button>
+              <button id="filterSelectNone" type="button" class="btn btn-sm btn-link p-0">Clear</button>
+            </div>
+            <div id="filterValueList" class="list-group" style="max-height: 360px; overflow-y: auto;"></div>
+            <p class="small text-muted mt-2 mb-0">
+              <i class="bi bi-info-circle me-1"></i>Empty selection = no filter on this field.
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-warning" id="filterApplyBtn">
+              <i class="bi bi-check2 me-1"></i>Apply
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Layout & Totals -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-layout-split me-2 text-secondary"></i>Layout &amp; Totals
+      </div>
+      <div class="card-body">
+        <label class="form-label small fw-bold">Layout</label>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="layout" id="layoutTabular" value="tabular" checked>
+          <label class="form-check-label" for="layoutTabular">
+            <strong>Tabular</strong> — each row field in its own column
+          </label>
+        </div>
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="radio" name="layout" id="layoutCompact" value="compact">
+          <label class="form-check-label" for="layoutCompact">
+            <strong>Compact</strong> — multiple row fields combined into one column
+          </label>
+        </div>
+
+        <hr class="my-2">
+
+        <label class="form-label small fw-bold">Totals</label>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="optGrandTotals" checked>
+          <label class="form-check-label" for="optGrandTotals">Show Grand Totals</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="optRowTotals" checked>
+          <label class="form-check-label" for="optRowTotals">Show Row Totals</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="optColumnTotals">
+          <label class="form-check-label" for="optColumnTotals">Show Column Totals</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="optSubtotals">
+          <label class="form-check-label" for="optSubtotals">Show Subtotals</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row Field Sorting -->
+    <div class="card border-0 shadow-sm mb-3" id="sortingCard" style="display:none">
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+        <span><i class="bi bi-sort-down me-2 text-info"></i>Row Sorting</span>
+        <span class="badge bg-light text-dark" id="sortBadge">0</span>
+      </div>
+      <div class="card-body">
+        <div id="sortList" class="mb-2"></div>
+        <p class="small text-muted mb-0">
+          <i class="bi bi-info-circle me-1"></i>Add fields to <strong>Rows</strong> first, then set a sort direction here.
+        </p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── RIGHT PANEL: Preview & Results ───────────────────────────────────── -->
+  <div class="col-lg-8">
+
+    <!-- Stats & loading -->
+    <div id="resultsHeader" class="d-flex align-items-center mb-3">
+      <strong id="resultsTitle" class="opacity-50">Pivot results will appear here</strong>
+      <span id="loadingSpinner" class="spinner-border spinner-border-sm ms-3 d-none" role="status"></span>
+      <span id="metaStats" class="ms-auto text-muted small"></span>
+    </div>
+
+    <!-- Error alert -->
+    <div id="errorAlert" class="alert alert-danger d-none" role="alert"></div>
+
+    <!-- Validation result panel -->
+    <div id="validationPanel" class="card border-0 shadow-sm mb-3" style="display:none">
+      <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-shield-check me-2 text-info"></i>Validation</span>
+        <span id="validationBadge" class="badge"></span>
+      </div>
+      <div class="card-body" id="validationBody"></div>
+    </div>
+
+    <!-- Pivot grid -->
+    <div id="resultsContainer">
+      <div class="card border-0 shadow-sm" id="pivotCard" style="display:none">
+        <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+          <span><i class="bi bi-table me-2 text-success"></i>Pivot Table</span>
+          <a href="#" id="drilldownBtn" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-zoom-in me-1"></i>Drilldown
+          </a>
+        </div>
+        <div class="card-body p-0">
+          <div id="pivotGrid" class="ag-theme-alpine" style="height:460px; width:100%;"></div>
+        </div>
+      </div>
+
+      <!-- Raw JSON debug (collapsible) -->
+      <div class="card border-0 shadow-sm mt-3" id="debugCard" style="display:none">
+        <div class="card-header bg-white fw-semibold" data-bs-toggle="collapse" data-bs-target="#debugCollapse" style="cursor:pointer">
+          <i class="bi bi-code me-2 text-muted"></i>API Request & Response (debug)
+          <i class="bi bi-chevron-down float-end"></i>
+        </div>
+        <div class="collapse" id="debugCollapse">
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <label class="form-label small fw-bold">Request sent</label>
+                <pre id="requestJson" class="bg-light p-2 rounded small" style="max-height: 220px; overflow: auto"></pre>
+              </div>
+              <div class="col-lg-6">
+                <label class="form-label small fw-bold">Response received</label>
+                <pre id="responseJson" class="bg-light p-2 rounded small" style="max-height: 220px; overflow: auto"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/pivot.js"></script>
+{% endblock %}

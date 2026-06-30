@@ -1,0 +1,183 @@
+/* ==========================================================================
+   Pivot App — Custom Styles
+   --------------------------------------------------------------------------
+   Bootstrap 5.3's `data-bs-theme` attribute drives most of the colour
+   tokens (--bs-body-bg, --bs-body-color, --bs-border-color, etc.). The few
+   hand-rolled styles below use those tokens so they automatically follow
+   the active theme.
+   ========================================================================== */
+
+:root {
+  --pivot-app-card-radius: 0.5rem;
+}
+
+/* ── Body / main — Bootstrap's body bg already adapts to data-bs-theme ─── */
+body {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+}
+
+/* ── Drop-zone (upload page) ────────────────────────────────────────────── */
+.drop-zone {
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+  border-style: dashed !important;
+  background-color: var(--bs-tertiary-bg);
+}
+
+.drop-zone:hover,
+.drop-zone.dragover {
+  background-color: color-mix(in srgb, var(--bs-primary) 12%, var(--bs-tertiary-bg));
+  border-color: var(--bs-primary) !important;
+}
+
+/* ── Scrollable preview tables ─────────────────────────────────────────── */
+.table-responsive {
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.table-responsive thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--bs-tertiary-bg);
+}
+
+/* ── Navbar active link ────────────────────────────────────────────────── */
+.navbar-nav .nav-link.active {
+  font-weight: 600;
+}
+
+/* ── Display-6 sizing (stat card numbers) ──────────────────────────────── */
+.display-6 {
+  font-size: 2rem;
+}
+
+/* ── Code / JSON debug blocks (pivot page) ─────────────────────────────── */
+pre.bg-light {
+  background-color: var(--bs-tertiary-bg) !important;
+  color: var(--bs-body-color);
+  border: 1px solid var(--bs-border-color-translucent);
+}
+
+/* ── Card / stat-card refinements in dark mode ─────────────────────────── */
+[data-bs-theme="dark"] .card {
+  background-color: var(--bs-tertiary-bg);
+  border-color: var(--bs-border-color-translucent);
+}
+
+[data-bs-theme="dark"] .card-header.bg-white,
+[data-bs-theme="dark"] .card-header {
+  background-color: var(--bs-tertiary-bg) !important;
+  color: var(--bs-body-color);
+  border-bottom-color: var(--bs-border-color-translucent);
+}
+
+[data-bs-theme="dark"] .table > :not(caption) > * > * {
+  background-color: transparent;
+  color: var(--bs-body-color);
+}
+
+[data-bs-theme="dark"] .table-hover > tbody > tr:hover > * {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: var(--bs-body-color);
+}
+
+[data-bs-theme="dark"] .table-light,
+[data-bs-theme="dark"] .table > thead.table-light {
+  --bs-table-bg: var(--bs-tertiary-bg);
+  --bs-table-color: var(--bs-body-color);
+  background-color: var(--bs-table-bg) !important;
+  color: var(--bs-table-color);
+}
+
+/* ── Ensure text-muted reads in dark mode ──────────────────────────────── */
+[data-bs-theme="dark"] .text-muted {
+  color: #9aa3ad !important;
+}
+
+/* ── Modal polish for dark mode ────────────────────────────────────────── */
+[data-bs-theme="dark"] .modal-content {
+  background-color: var(--bs-tertiary-bg);
+  color: var(--bs-body-color);
+  border-color: var(--bs-border-color-translucent);
+}
+
+[data-bs-theme="dark"] .modal-header,
+[data-bs-theme="dark"] .modal-footer {
+  border-color: var(--bs-border-color-translucent);
+}
+
+[data-bs-theme="dark"] .list-group-item {
+  background-color: var(--bs-tertiary-bg);
+  color: var(--bs-body-color);
+  border-color: var(--bs-border-color-translucent);
+}
+
+/* ── Theme toggle dropdown item — highlight active mode ────────────────── */
+[data-theme-mode].active,
+[data-theme-mode]:active {
+  background-color: var(--bs-primary-bg-subtle);
+  color: var(--bs-emphasis-color);
+  font-weight: 600;
+}
+
+[data-bs-theme="dark"] [data-theme-mode].active {
+  background-color: rgba(13, 110, 253, 0.25);
+  color: #fff;
+}
+
+/* ── Form controls in dark mode ────────────────────────────────────────── */
+[data-bs-theme="dark"] .form-control,
+[data-bs-theme="dark"] .form-select {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  border-color: var(--bs-border-color);
+}
+
+[data-bs-theme="dark"] .form-control:focus,
+[data-bs-theme="dark"] .form-select:focus {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+}
+
+/* ── Sticky table headers in dark mode (the dark CSS from Bootstrap may
+       not apply to thead-light automatically) ──────────────────────────── */
+[data-bs-theme="dark"] thead.table-dark th,
+[data-bs-theme="dark"] .table-dark {
+  background-color: #1f2937;
+  color: #f8f9fa;
+  border-color: var(--bs-border-color-translucent);
+}
+
+/* ── Border / "rounded-pill bg-light text-dark" badges (preview.html) ── */
+[data-bs-theme="dark"] .bg-light {
+  background-color: var(--bs-tertiary-bg) !important;
+  color: var(--bs-body-color) !important;
+  border-color: var(--bs-border-color-translucent) !important;
+}
+
+/* ── Override Bootstrap's `text-dark`/`text-body` utilities inside the
+       dark theme so badges/labels using bg-light + text-dark still read ── */
+[data-bs-theme="dark"] .bg-light.text-dark,
+[data-bs-theme="dark"] .bg-light.text-body {
+  color: var(--bs-body-color) !important;
+}
+
+/* ── AG Grid wrapper — give it a faint border in both themes ──────────── */
+#previewGrid,
+#pivotGrid {
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: var(--pivot-app-card-radius);
+}
+
+/* ── Spinner & misc ────────────────────────────────────────────────────── */
+.spinner-border {
+  vertical-align: -0.125em;
+}
+
+/* ── Dropdown items — readable in both modes ───────────────────────────── */
+.dropdown-item {
+  cursor: pointer;
+}

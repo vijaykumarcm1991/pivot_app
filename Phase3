@@ -1,0 +1,235 @@
+Phase 2 is complete and working well. I'd like to continue without changing the existing functionality.
+
+This phase is about building the Pivot Configuration Engine. I don't want to render pivot tables yet. I first want users to configure the pivot exactly like they would in Excel.
+
+The goal is to let users define how the pivot should look. The backend should understand the configuration and be able to save it for later. Rendering the actual pivot grid will be done in the next phase.
+
+Please create a new page called "Pivot Builder".
+
+The page should have three sections.
+
+The first section is Dataset Selection.
+
+Here the user should choose:
+- Dataset
+- Sheet
+
+Once a sheet is selected, load all available columns from the metadata we created in the previous phase.
+
+The second section is Pivot Configuration.
+
+Show every available column.
+
+Allow users to assign fields into four areas:
+
+- Rows
+- Columns
+- Values
+- Filters
+
+I don't need drag-and-drop yet. Simplicity is more important.
+
+Instead, make it easy to move fields using buttons, dropdowns or another clean interface.
+
+For Value fields, allow the user to choose an aggregation function.
+
+Support:
+
+- Count
+- Sum
+- Average
+- Minimum
+- Maximum
+
+Only allow numeric aggregations for numeric columns.
+
+If the field is text, automatically limit the available options to something appropriate such as Count.
+
+For Date columns, provide a grouping option.
+
+Support:
+
+- Year
+- Quarter
+- Month
+- Week
+- Day
+
+The grouping should be optional because sometimes users want the original date.
+
+Next, allow users to choose the pivot layout.
+
+Support:
+
+- Compact
+- Tabular
+
+Also provide these options:
+
+- Show Grand Totals
+- Show Row Totals
+- Show Column Totals
+- Show Subtotals
+
+Each should be individually configurable.
+
+Add sorting options.
+
+Users should be able to choose:
+
+- Ascending
+- Descending
+
+for each Row field.
+
+For Filters, allow selecting one or more values for each filter field.
+
+For example:
+
+Status:
+Open
+Closed
+Resolved
+
+Priority:
+High
+Medium
+Low
+
+I don't need advanced filtering yet.
+
+Once everything has been configured, create a "Generate Pivot" button.
+
+When the button is clicked, do not calculate the pivot in JavaScript.
+
+Instead, build a Pivot Configuration object and send it to the backend.
+
+The backend will calculate the pivot in the next phase.
+
+Please create a clean JSON structure for the configuration.
+
+It should contain everything required to reproduce the pivot later.
+
+For example:
+
+- dataset
+- sheet
+- rows
+- columns
+- values
+- aggregations
+- filters
+- date grouping
+- layout
+- totals
+- subtotals
+- sorting
+
+I also want users to be able to save this configuration in the future, so please design it with that in mind.
+
+For now, just keep it in memory after the page loads.
+
+Please create a backend endpoint that accepts the pivot configuration and validates it.
+
+The endpoint should verify:
+
+- dataset exists
+- sheet exists
+- fields exist
+- aggregation is valid
+- date grouping is valid
+- layout is valid
+
+Return a validation response.
+
+Do not calculate the pivot yet.
+
+The purpose of this endpoint is simply to validate the configuration.
+
+Please keep the code modular.
+
+Suggested services:
+
+- pivot_configuration_service.py
+- pivot_validation_service.py
+
+The route file should remain small.
+
+Use Bootstrap for the page.
+
+Continue using vanilla JavaScript.
+
+No frontend frameworks.
+
+At the end, provide:
+
+- updated folder structure
+- API documentation
+- JSON schema for the pivot configuration
+- explanation of how this configuration will be used in the next phase
+
+Please verify the following before considering this phase complete.
+
+1. Select a dataset.
+Expected:
+Available sheets load correctly.
+
+2. Select a sheet.
+Expected:
+All columns are displayed.
+
+3. Add fields to Rows.
+Expected:
+Configuration updates correctly.
+
+4. Add fields to Columns.
+Expected:
+Configuration updates correctly.
+
+5. Add Value fields.
+Expected:
+Aggregation options appear.
+
+6. Select a text field as a Value.
+Expected:
+Only appropriate aggregation options are available.
+
+7. Select a numeric field as a Value.
+Expected:
+Sum, Average, Min, Max and Count are available.
+
+8. Select a Date field.
+Expected:
+Date grouping options are available.
+
+9. Configure filters.
+Expected:
+Selected values are stored correctly.
+
+10. Configure layout.
+Expected:
+Layout option is stored in the configuration.
+
+11. Configure totals and subtotals.
+Expected:
+Selections are stored correctly.
+
+12. Configure sorting.
+Expected:
+Sort options are stored correctly.
+
+13. Click "Generate Pivot".
+Expected:
+The complete pivot configuration is sent to the backend.
+
+14. Submit an invalid configuration.
+Expected:
+The backend returns meaningful validation errors.
+
+15. Review the generated JSON.
+Expected:
+It contains everything required to recreate the pivot later without additional user input.
+
+16. Review the code.
+Expected:
+UI logic, validation logic and API logic are cleanly separated and easy to extend.
