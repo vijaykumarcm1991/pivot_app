@@ -760,7 +760,7 @@
     }));
 
     const gridOptions = {
-      columnDefs,
+      columnDefs: colDefs,
       rowData: data.rows,
       defaultColDef: { sortable: true, filter: true, resizable: true, minWidth: 100 },
       pagination: true,
