@@ -49,6 +49,10 @@ mailing.
   - Pre-paint inline script avoids flash-of-wrong-theme on first load.
   - All Bootstrap components, AG Grid, JSON debug blocks, stat cards,
     modals and form controls adapt automatically.
+  - `pivot.js` defensively handles a missing/loading Bootstrap by lazily
+    creating the filter modal and wrapping the init code in a
+    `try { main() } catch` so a single bootstrap.CDN hiccup can't
+    prevent `loadDatasets()` from running.
 
 ## Project Structure
 

@@ -17,6 +17,18 @@
 (function () {
   "use strict";
 
+  // Wrap the whole IIFE in a try-catch so a single bad line (e.g. an
+  // uncaught ReferenceError from a missing global) doesn't prevent
+  // loadDatasets() from running and the dataset dropdown from
+  // populating. The catch logs the error to the console for visibility.
+  try {
+  main();
+  } catch (err) {
+    console.error("[pivot.js] init error:", err);
+  }
+
+  function main() {
+
   // ── State ─────────────────────────────────────────────────────────────────
   const appState = {
     datasetId:    null,
@@ -114,9 +126,21 @@
   const saveBtn           = document.getElementById("saveBtn");
   const pivotGrid         = document.getElementById("pivotGrid");
 
-  // Filter modal
+  // Filter modal (lazy — create on first use, not at module load time).
+  // This way a transient bootstrap.Modal failure (e.g. CDN hiccup) doesn't
+  // take down the entire script and prevent loadDatasets() from running.
   const filterModalEl     = document.getElementById("filterModal");
-  const filterModal       = filterModalEl ? new bootstrap.Modal(filterModalEl) : null;
+  let   filterModal       = null;
+  function getFilterModal() {
+    if (filterModal) return filterModal;
+    if (!filterModalEl || !window.bootstrap || !window.bootstrap.Modal) return null;
+    try {
+      filterModal = new window.bootstrap.Modal(filterModalEl);
+    } catch (_) {
+      filterModal = null;
+    }
+    return filterModal;
+  }
   const filterSearch      = document.getElementById("filterSearch");
   const filterValueList   = document.getElementById("filterValueList");
   const filterSelectAll   = document.getElementById("filterSelectAll");
@@ -481,7 +505,8 @@
 
     // Load distinct values from the current sheet
     filterValueList.innerHTML = '<div class="text-muted small p-2">Loading values…</div>';
-    if (filterModal) filterModal.show();
+    const m = getFilterModal();
+    if (m) m.show();
 
     try {
       // We don't have a dedicated "distinct values" endpoint, so re-use the
@@ -564,7 +589,8 @@
         appState.filters[filterModalField] = Array.from(filterModalSelected);
       }
       updateBadges();
-      if (filterModal) filterModal.hide();
+      const m = getFilterModal();
+      if (m) m.hide();
     });
   }
 
@@ -807,4 +833,5 @@
     return ({ sum: "primary", average: "info", count: "secondary",
               min: "warning", max: "danger" })[agg] || "light";
   }
+  }  // end of main()
 })();
