@@ -1,0 +1,343 @@
+Phase 3 is complete and working well. I'd like to continue building the application without changing the existing Pivot Configuration contract or backend APIs.
+
+Please use the current Pivot Configuration JSON and the existing /api/pivot endpoint exactly as implemented.
+
+The goal of this phase is to render the computed pivot results in a clean, Excel-like experience using AG Grid Community (plain JavaScript).
+
+I'm not looking for an exact clone of Microsoft Excel, but I do want users to feel familiar with the workflow.
+
+Please improve the Pivot page with the following functionality.
+
+--------------------------------------------------
+1. Generate Pivot
+--------------------------------------------------
+
+When the user clicks "Generate Pivot":
+
+- Validate the configuration
+- Call the existing compute endpoint
+- Display a loading overlay while the request is running
+- Disable the Generate button until the request completes
+- Display friendly error messages if the request fails
+
+Do not change the request payload.
+
+--------------------------------------------------
+2. Render the Pivot Result
+--------------------------------------------------
+
+Use AG Grid to display the returned pivot data.
+
+The grid should support:
+
+- column resizing
+- column reordering
+- sorting
+- filtering
+- text search
+- row striping
+- sticky header
+- pagination
+- horizontal scrolling
+- responsive layout
+
+Columns should be generated dynamically from the response.
+
+--------------------------------------------------
+3. Row Selection
+--------------------------------------------------
+
+Enable checkbox selection.
+
+Support:
+
+- single row selection
+- multiple row selection
+- Select All
+- Clear Selection
+
+Display a small summary above the grid showing:
+
+Selected Rows:
+Selected Groups:
+Total Rows Returned:
+
+The selected rows will be used in the email module later, so keep the selected row objects available in JavaScript.
+
+--------------------------------------------------
+4. Compact and Tabular Layout
+--------------------------------------------------
+
+The backend already returns the layout information.
+
+Render both layouts correctly.
+
+Tabular layout should display each row field separately.
+
+Compact layout should display the combined row hierarchy cleanly.
+
+--------------------------------------------------
+5. Grand Totals
+--------------------------------------------------
+
+If Grand Totals are enabled:
+
+Display them clearly at the bottom of the grid.
+
+Style them differently from normal rows.
+
+--------------------------------------------------
+6. Row Totals
+--------------------------------------------------
+
+If Row Totals are enabled:
+
+Display the total column with a different style.
+
+--------------------------------------------------
+7. Column Totals
+--------------------------------------------------
+
+The backend already accepts this option.
+
+If totals are available in the response, render them.
+
+If the backend has not implemented this yet, prepare the frontend so no redesign is needed later.
+
+--------------------------------------------------
+8. Subtotals
+--------------------------------------------------
+
+Prepare the UI so subtotal rows can be displayed later.
+
+Do not redesign the grid when backend support is added.
+
+--------------------------------------------------
+9. Expand / Collapse
+--------------------------------------------------
+
+When there are multiple row fields:
+
+Support expanding and collapsing groups.
+
+Users should be able to expand one group without expanding every group.
+
+Remember the expansion state after sorting or filtering whenever possible.
+
+--------------------------------------------------
+10. Pivot Statistics Panel
+--------------------------------------------------
+
+Above the grid, display:
+
+Dataset Name
+
+Sheet Name
+
+Source Rows
+
+Rows After Filters
+
+Pivot Rows Returned
+
+Layout
+
+Date Grouping
+
+Aggregations Used
+
+This information already exists in the response metadata.
+
+--------------------------------------------------
+11. Search
+--------------------------------------------------
+
+Add a global search box above the grid.
+
+Searching should filter the visible pivot rows instantly.
+
+--------------------------------------------------
+12. Export
+--------------------------------------------------
+
+Add an Export button.
+
+For now:
+
+Export exactly what is currently displayed in the grid to Excel.
+
+Include:
+
+headers
+
+visible rows
+
+sorting
+
+filters
+
+Do not export hidden columns.
+
+This export is only for the pivot result.
+
+Raw data export will come later.
+
+--------------------------------------------------
+13. Performance
+--------------------------------------------------
+
+Avoid re-rendering the entire grid unnecessarily.
+
+Reuse AG Grid APIs whenever possible.
+
+Datasets with several thousand pivot rows should remain responsive.
+
+--------------------------------------------------
+14. Empty States
+--------------------------------------------------
+
+Show friendly messages when:
+
+No dataset selected
+
+No pivot generated
+
+No rows returned
+
+Invalid response
+
+--------------------------------------------------
+15. Future Preparation
+--------------------------------------------------
+
+Without implementing the functionality yet, reserve space in the toolbar for:
+
+Save Pivot
+
+Load Pivot
+
+Send Email
+
+These buttons can remain disabled.
+
+The layout should already look complete.
+
+--------------------------------------------------
+16. UI Polish
+--------------------------------------------------
+
+Please improve the overall appearance.
+
+Suggestions:
+
+Bootstrap cards
+
+Rounded corners
+
+Consistent spacing
+
+Icons where appropriate
+
+Sticky toolbar
+
+Better typography
+
+Responsive layout
+
+The application should feel like a polished internal reporting tool rather than a prototype.
+
+--------------------------------------------------
+17. Keep Existing APIs
+--------------------------------------------------
+
+Please do not change:
+
+the Pivot Configuration JSON
+
+the validation endpoint
+
+the compute endpoint
+
+the drilldown endpoint
+
+Build everything around the existing implementation.
+
+--------------------------------------------------
+
+When finished, please provide:
+
+- updated folder structure
+- list of new JavaScript modules
+- explanation of AG Grid configuration
+- explanation of how row selection is stored
+- anything that should be reviewed before starting the Drill-down and Email phases.
+
+Test Cases:
+
+1. Generate a pivot.
+Expected:
+Grid loads correctly.
+
+2. Resize columns.
+Expected:
+Widths update correctly.
+
+3. Sort multiple columns.
+Expected:
+Grid sorts correctly.
+
+4. Filter rows.
+Expected:
+Visible rows update immediately.
+
+5. Use the search box.
+Expected:
+Only matching rows remain visible.
+
+6. Select one row.
+Expected:
+Selection counter becomes 1.
+
+7. Select multiple rows.
+Expected:
+Selection counter updates correctly.
+
+8. Click Select All.
+Expected:
+Every visible row becomes selected.
+
+9. Clear Selection.
+Expected:
+No rows remain selected.
+
+10. Generate a compact layout.
+Expected:
+Hierarchy displays correctly.
+
+11. Generate a tabular layout.
+Expected:
+Separate row fields are shown.
+
+12. Verify Grand Totals.
+Expected:
+Totals row is styled differently.
+
+13. Verify Row Totals.
+Expected:
+Totals column is clearly distinguishable.
+
+14. Export the pivot.
+Expected:
+The exported Excel matches the current grid view.
+
+15. Test with a large dataset.
+Expected:
+Scrolling, filtering and selection remain responsive.
+
+16. Refresh the pivot.
+Expected:
+The grid updates without leaving stale data behind.
+
+17. Review the UI.
+Expected:
+The page feels clean, consistent and ready for the next phase.

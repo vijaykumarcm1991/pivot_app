@@ -1,18 +1,23 @@
 /**
- * pivot.js — Pivot Builder UI logic (Phase 3).
+ * pivot.js — Pivot Builder controller (Phase 3 config + Phase 4 result UI).
  *
- * API endpoints:
- *   POST /api/pivot/validate   → validate a pivot config (no compute)
- *   POST /api/pivot            → compute the pivot
- *   POST /api/pivot/drilldown  → get raw rows matching a pivot selection
+ * Owns:
+ *   - The appState object (dataset, sheet, columns, rows, columnsGroup,
+ *     values, filters, dateGrouping, sorting, totals, layout).
+ *   - The left-panel configuration UI (Phase 3).
+ *   - The right-panel action toolbar, stats card, selection bar and empty
+ *     state (Phase 4).
+ *   - The buildPayload() / validate / compute flow against /api/pivot/validate
+ *     and /api/pivot (the Phase 3 contract — unchanged).
  *
- * Flow:
- *   1. Load datasets → populate dataset dropdown
- *   2. Select dataset → load sheet dropdown, auto-pick first sheet
- *   3. Sheet change  → reload columns for that sheet
- *   4. User adds rows/columns/values/filters/sorts
- *   5. Click "Validate" → POST /api/pivot/validate → show errors/warnings
- *   6. Click "Compute"  → POST /api/pivot → render AG Grid
+ * Delegates:
+ *   - AG Grid rendering, selection, search, theme sync → window.PivotGrid
+ *   - Excel export of the current view                  → window.PivotExport
+ *
+ * API endpoints (Phase 3 — do not change):
+ *   POST /api/pivot/validate   — pure metadata validation
+ *   POST /api/pivot            — compute the pivot
+ *   POST /api/pivot/drilldown  — raw rows matching a pivot cell
  */
 (function () {
   "use strict";
@@ -22,32 +27,35 @@
   // loadDatasets() from running and the dataset dropdown from
   // populating. The catch logs the error to the console for visibility.
   try {
-  main();
+    main();
   } catch (err) {
     console.error("[pivot.js] init error:", err);
   }
 
   function main() {
 
-  // ── State ─────────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // STATE
+  // ════════════════════════════════════════════════════════════════════════
   const appState = {
-    datasetId:    null,
-    sheetName:    null,
-    columns:      [],          // [{name, type, nullable}] for the current sheet
-    rows:         [],          // selected row grouping fields
-    columnsGroup: [],          // selected column grouping fields
-    values:       [],          // [{field, aggregation, label}]
-    filters:      {},          // {field: ["v1","v2"] | "v" | null}
-    dateGrouping: {},          // {field: "month"}
-    sorting:      {},          // {field: "asc" | "desc"}
+    datasetId:     null,
+    sheetName:     null,
+    datasetName:   "",     // for stats / export filename
+    columns:       [],     // [{name, type, nullable}] for the current sheet
+    rows:          [],
+    columnsGroup:  [],
+    values:        [],     // [{field, aggregation, label}]
+    filters:       {},     // {field: [...] | "v" | null}
+    dateGrouping:  {},     // {field: "month"}
+    sorting:       {},     // {field: "asc" | "desc"}
     totals: {
       showGrandTotals:  true,
       showRowTotals:    true,
       showColumnTotals: false,
       showSubtotals:    false,
     },
-    layout:       "tabular",
-    gridApi:      null,
+    layout: "tabular",
+    lastResponse:  null,   // last PivotResponse (for export)
   };
 
   // ── Allowed aggregations per data type (mirrors pivot_validation_service) ─
@@ -62,18 +70,17 @@
     date:     ["count", "sum", "average", "min", "max"],
   };
   const AGG_LABEL = {
-    count:   "Count",
-    sum:     "Sum",
-    average: "Average",
-    min:     "Min",
-    max:     "Max",
+    count:   "Count", sum: "Sum", average: "Average", min: "Min", max: "Max",
   };
   const TYPE_ICON = {
     datetime: "📅", integer: "🔢", float: "📊", decimal: "📊",
     boolean:  "✅", string:  "📝", text: "📝", date: "📅",
   };
 
-  // ── DOM refs ──────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // DOM REFS
+  // ════════════════════════════════════════════════════════════════════════
+  // Left panel
   const datasetSelect     = document.getElementById("datasetSelect");
   const sheetSelect       = document.getElementById("sheetSelect");
   const sourceInfo        = document.getElementById("sourceInfo");
@@ -108,9 +115,11 @@
   const sortingCard       = document.getElementById("sortingCard");
   const sortBadge         = document.getElementById("sortBadge");
   const sortList          = document.getElementById("sortList");
+
+  // Right panel — Phase 4
   const computeBtn        = document.getElementById("computeBtn");
   const validateBtn       = document.getElementById("validateBtn");
-  const resultsTitle      = document.getElementById("resultsTitle");
+  const exportBtn         = document.getElementById("exportBtn");
   const loadingSpinner    = document.getElementById("loadingSpinner");
   const metaStats         = document.getElementById("metaStats");
   const errorAlert        = document.getElementById("errorAlert");
@@ -118,17 +127,22 @@
   const validationBadge   = document.getElementById("validationBadge");
   const validationBody    = document.getElementById("validationBody");
   const pivotCard         = document.getElementById("pivotCard");
+  const pivotGrid         = document.getElementById("pivotGrid");
+  const gridLoadingOverlay= document.getElementById("gridLoadingOverlay");
+  const statsCard         = document.getElementById("statsCard");
+  const statsGrid         = document.getElementById("statsGrid");
+  const selectionCard     = document.getElementById("selectionCard");
+  const emptyState        = document.getElementById("emptyState");
+  const warningBanner     = document.getElementById("warningBanner");
+  const warningText       = document.getElementById("warningText");
+  const selectAllBtn      = document.getElementById("selectAllBtn");
+  const clearSelectionBtn = document.getElementById("clearSelectionBtn");
+  const gridSearch        = document.getElementById("gridSearch");
   const debugCard         = document.getElementById("debugCard");
   const requestJson       = document.getElementById("requestJson");
   const responseJson      = document.getElementById("responseJson");
-  const drilldownBtn      = document.getElementById("drilldownBtn");
-  const exportBtn         = document.getElementById("exportBtn");
-  const saveBtn           = document.getElementById("saveBtn");
-  const pivotGrid         = document.getElementById("pivotGrid");
 
   // Filter modal (lazy — create on first use, not at module load time).
-  // This way a transient bootstrap.Modal failure (e.g. CDN hiccup) doesn't
-  // take down the entire script and prevent loadDatasets() from running.
   const filterModalEl     = document.getElementById("filterModal");
   let   filterModal       = null;
   function getFilterModal() {
@@ -146,13 +160,24 @@
   const filterSelectAll   = document.getElementById("filterSelectAll");
   const filterSelectNone  = document.getElementById("filterSelectNone");
   const filterApplyBtn    = document.getElementById("filterApplyBtn");
-  let filterModalField    = null;   // field being edited in the modal
+  let filterModalField    = null;
   let filterModalSelected = new Set();
 
-  // ── Init: load datasets ───────────────────────────────────────────────────
-  loadDatasets();
+  // Wire PivotExport's notifier to our error alert.
+  if (window.PivotExport) {
+    window.PivotExport.setNotifier(showError);
+  }
 
-  // ── API: fetch datasets ───────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // INIT
+  // ════════════════════════════════════════════════════════════════════════
+  loadDatasets();
+  showEmptyState();
+  hideAllResults();
+
+  // ════════════════════════════════════════════════════════════════════════
+  // DATASETS / SHEETS / COLUMNS  (Phase 3 — unchanged)
+  // ════════════════════════════════════════════════════════════════════════
   async function loadDatasets() {
     try {
       const res  = await fetch("/api/datasets");
@@ -169,10 +194,12 @@
     }
   }
 
-  // ── Dataset select → load sheets + first sheet columns ──────────────────
   datasetSelect.addEventListener("change", async () => {
     const id = datasetSelect.value;
     appState.datasetId = id || null;
+    appState.datasetName = id
+      ? (datasetSelect.options[datasetSelect.selectedIndex]?.text || "")
+      : "";
     appState.sheetName = null;
 
     sheetSelect.innerHTML = '<option value="">— select —</option>';
@@ -194,7 +221,6 @@
         sheetSelect.appendChild(opt);
       });
 
-      // Auto-pick first sheet and load its columns
       if (data.sheets.length) {
         sheetSelect.value = data.sheets[0].sheet_name;
         appState.sheetName = sheetSelect.value;
@@ -208,16 +234,17 @@
     }
   });
 
-  // ── Sheet select → reload columns for the new sheet ───────────────────────
   sheetSelect.addEventListener("change", async () => {
     const sheet = sheetSelect.value;
     appState.sheetName = sheet || null;
     if (!sheet || !appState.datasetId) return;
+    // The previous pivot result was computed for the OLD sheet — clear
+    // it so we never show stale data (Phase 4 spec §16, "refresh").
+    clearResults();
     clearColumnSelects();
     await loadColumnsForSheet(appState.datasetId, sheet);
   });
 
-  // ── Load columns for a specific sheet ────────────────────────────────────
   async function loadColumnsForSheet(datasetId, sheetName) {
     try {
       const res = await fetch(
@@ -235,7 +262,6 @@
     }
   }
 
-  // ── Populate dropdowns with available columns ─────────────────────────────
   function populateColumnSelects() {
     clearColumnSelects();
     valueFieldSelect.disabled = false;
@@ -281,7 +307,6 @@
       colsSelect.appendChild(rOpt.cloneNode(true));
     });
 
-    // Show / hide date-grouping card
     const hasDate = appState.columns.some(c => c.type === "datetime" || c.type === "date");
     dateGroupingCard.style.display = hasDate ? "" : "none";
     dateFieldSelect.disabled = !hasDate;
@@ -308,7 +333,6 @@
     updateBadges();
   }
 
-  // ── Update aggregations dropdown based on the selected value field type ──
   valueFieldSelect.addEventListener("change", () => {
     const field = valueFieldSelect.value;
     const col   = appState.columns.find(c => c.name === field);
@@ -323,7 +347,9 @@
     });
   });
 
-  // ── Manage selections ─────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // ROWS / COLUMNS / VALUES / FILTERS  (Phase 3 — unchanged)
+  // ════════════════════════════════════════════════════════════════════════
   function updateBadges() {
     rowsBadge.textContent           = appState.rows.length;
     colsBadge.textContent           = appState.columnsGroup.length;
@@ -337,10 +363,7 @@
     const canSubmit = !!appState.datasetId && !!appState.sheetName;
     computeBtn.disabled  = !canSubmit;
     validateBtn.disabled = !canSubmit;
-    saveBtn.disabled     = !canSubmit;
-    exportBtn.disabled   = !canSubmit;
 
-    // Show sorting card only if at least one row field is selected
     sortingCard.style.display = appState.rows.length ? "" : "none";
     renderSortList();
     renderDateGroupingList();
@@ -348,7 +371,6 @@
     renderFilterList();
   }
 
-  // ── Add / remove row and column fields ───────────────────────────────────
   addRowBtn.addEventListener("click", () => {
     Array.from(rowsSelect.selectedOptions).forEach(o => {
       const field = o.value;
@@ -382,13 +404,11 @@
     updateBadges();
   });
 
-  // ── Date grouping (using the proper UI card — no prompt()) ───────────────
   addDateGroupBtn.addEventListener("click", () => {
     const field    = dateFieldSelect.value;
     const grouping = dateGroupSelect.value;
     if (!field) return;
     appState.dateGrouping[field] = grouping;
-    // Auto-add to rows if neither rows nor columns contain it
     if (!appState.rows.includes(field) && !appState.columnsGroup.includes(field)) {
       appState.rows.push(field);
     }
@@ -417,7 +437,6 @@
     });
   }
 
-  // ── Per-row sorting ──────────────────────────────────────────────────────
   function renderSortList() {
     sortList.innerHTML = "";
     appState.rows.forEach(field => {
@@ -445,7 +464,6 @@
     });
   }
 
-  // ── Values (with type-aware aggregation) ─────────────────────────────────
   addValueBtn.addEventListener("click", () => {
     const field = valueFieldSelect.value;
     const agg   = valueAggSelect.value;
@@ -487,7 +505,6 @@
     });
   }
 
-  // ── Filters (multi-value via Bootstrap modal — no more prompt()) ─────────
   addFilterBtn.addEventListener("click", () => {
     const field = filterFieldSelect.value;
     if (!field) return;
@@ -498,21 +515,15 @@
     filterModalField    = field;
     filterModalSelected = new Set();
 
-    // Existing selection
     const existing = appState.filters[field];
     if (Array.isArray(existing))     existing.forEach(v => filterModalSelected.add(String(v)));
     else if (existing !== undefined) filterModalSelected.add(String(existing));
 
-    // Load distinct values from the current sheet
     filterValueList.innerHTML = '<div class="text-muted small p-2">Loading values…</div>';
     const m = getFilterModal();
     if (m) m.show();
 
     try {
-      // We don't have a dedicated "distinct values" endpoint, so re-use the
-      // preview endpoint and derive unique values client-side. For very large
-      // sheets this loads only the first 100 rows — for filter selection on
-      // small-to-medium datasets that's an acceptable trade-off.
       const res  = await fetch(
         `/api/dataset/${appState.datasetId}/sheet/${encodeURIComponent(appState.sheetName)}/preview`
       );
@@ -630,7 +641,6 @@
     });
   }
 
-  // ── Layout / Totals options ──────────────────────────────────────────────
   layoutRadios.forEach(r => r.addEventListener("change", e => {
     appState.layout = e.target.value;
   }));
@@ -639,7 +649,9 @@
   optColumnTotals.addEventListener("change", () => appState.totals.showColumnTotals = optColumnTotals.checked);
   optSubtotals   .addEventListener("change", () => appState.totals.showSubtotals    = optSubtotals.checked);
 
-  // ── Build payload (single source of truth) ───────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // BUILD PAYLOAD  (Phase 3 contract — unchanged)
+  // ════════════════════════════════════════════════════════════════════════
   function buildPayload() {
     return {
       datasetId:    appState.datasetId,
@@ -655,7 +667,9 @@
     };
   }
 
-  // ── Validate ─────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // VALIDATE  (Phase 3)
+  // ════════════════════════════════════════════════════════════════════════
   validateBtn.addEventListener("click", validatePivot);
   async function validatePivot() {
     if (!appState.datasetId || !appState.sheetName) return;
@@ -707,17 +721,17 @@
     }
   }
 
-  // ── Compute ──────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // GENERATE PIVOT  (Phase 4 — renamed from "Compute Pivot")
+  // ════════════════════════════════════════════════════════════════════════
   computeBtn.addEventListener("click", computePivot);
   async function computePivot() {
     if (!appState.datasetId || !appState.sheetName) return;
     hideError();
     validationPanel.style.display = "none";
 
-    loadingSpinner.classList.remove("d-none");
-    pivotCard.style.display = "none";
-    debugCard.style.display = "none";
-    resultsTitle.textContent = "Computing pivot…";
+    // Phase 4: show loading overlay, disable button, hide empty state
+    setComputing(true);
 
     const payload = buildPayload();
     requestJson.textContent = JSON.stringify(payload, null, 2);
@@ -731,93 +745,238 @@
       responseJson.textContent = JSON.stringify(data, null, 2);
       if (!res.ok) throw new Error(data.detail || "Pivot request failed");
 
-      renderPivotGrid(data);
-      resultsTitle.textContent = "Pivot Table";
-      metaStats.innerHTML = `
-        <span class="text-primary">${data.metadata.filtered_rows.toLocaleString()} rows filtered</span>,
-        <span class="text-success">${data.rows.length} pivot rows</span>,
-        <span class="text-info">${data.columns.length} columns</span>
-      `;
-      pivotCard.style.display = "";
-      debugCard.style.display = "";
+      appState.lastResponse = data;
+      const context = {
+        datasetName: appState.datasetName,
+        sheetName:   appState.sheetName,
+      };
+
+      renderResult(data, context);
     } catch (err) {
       showError("Pivot computation failed: " + err.message);
       clearResults();
     } finally {
-      loadingSpinner.classList.add("d-none");
+      setComputing(false);
     }
   }
 
-  // ── Render AG Grid from pivot response ────────────────────────────────────
-  function renderPivotGrid(data) {
-    const colDefs = data.columns.map(col => ({
-      field:      col,
-      headerName: col,
-      sortable:   true,
-      filter:     true,
-      resizable:  true,
-      minWidth:   100,
-    }));
+  /**
+   * Phase 4 §1: loading overlay + disabled Generate button while the
+   * request is in flight. We also enable the Export button here once a
+   * result is rendered, and disable it again on clear.
+   */
+  function setComputing(isComputing) {
+    if (loadingSpinner)    loadingSpinner.classList.toggle("d-none", !isComputing);
+    if (gridLoadingOverlay) {
+      gridLoadingOverlay.classList.toggle("d-none", !isComputing);
+    }
+    if (computeBtn) {
+      computeBtn.disabled = isComputing || !appState.datasetId || !appState.sheetName;
+    }
+    if (validateBtn) {
+      validateBtn.disabled = isComputing || !appState.datasetId || !appState.sheetName;
+    }
+  }
 
-    const gridOptions = {
-      columnDefs: colDefs,
-      rowData: data.rows,
-      defaultColDef: { sortable: true, filter: true, resizable: true, minWidth: 100 },
-      pagination: true,
-      paginationPageSize: 20,
-      enableCellTextSelection: true,
-    };
-
-    // Pick the AG Grid theme class to match the current app theme.
-    if (pivotGrid) {
-      const isDark = (window.ThemeManager && window.ThemeManager.getCurrentTheme() === "dark");
-      pivotGrid.classList.toggle("ag-theme-alpine-dark", isDark);
-      pivotGrid.classList.toggle("ag-theme-alpine",      !isDark);
+  // ════════════════════════════════════════════════════════════════════════
+  // RENDER RESULT  (Phase 4 — orchestrates grid / stats / selection / warning)
+  // ════════════════════════════════════════════════════════════════════════
+  function renderResult(data, context) {
+    if (!data || !Array.isArray(data.rows)) {
+      showError("Invalid pivot response from the server.");
+      return;
     }
 
-    if (appState.gridApi) {
-      appState.gridApi.setGridOption("columnDefs", colDefs);
-      appState.gridApi.setGridOption("rowData", data.rows);
-      // Re-apply the theme class — setGridOption won't change the wrapper
-      // class, but AG Grid reads it on init only, so we destroy + recreate
-      // when the theme flips. Theme changes are rare, so this is fine.
-      applyGridTheme(pivotGrid);
+    hideEmptyState();
+    hideAllResults();
+
+    const meta  = data.metadata || {};
+    const rows  = data.rows || [];
+    const warning = rows.find(r => r && typeof r._warning === "string");
+    const dataRows = rows.filter(r => !(r && typeof r._warning === "string"));
+
+    // 1. Render the grid (Phase 4 §2–9)
+    if (dataRows.length || warning) {
+      if (window.PivotGrid && pivotGrid) {
+        window.PivotGrid.render(pivotGrid, data, context);
+      }
+    }
+
+    // 2. Stats panel (Phase 4 §10)
+    renderStats(data, context);
+
+    // 3. Selection card — visible if there's a result
+    if (selectionCard) selectionCard.style.display = dataRows.length ? "" : "none";
+
+    // 4. Meta line in the action toolbar
+    if (metaStats) {
+      metaStats.innerHTML = `
+        <span class="text-primary">${(dataRows.length).toLocaleString()} rows</span>,
+        <span class="text-success">${(data.columns || []).length} columns</span>
+        <span class="text-muted">·</span>
+        <span class="text-muted">${(meta.filtered_rows || 0).toLocaleString()} filtered from ${(meta.source_rows || 0).toLocaleString()}</span>
+      `;
+    }
+
+    // 5. Warning banner (Phase 4 §14)
+    if (warning) {
+      warningText.textContent = warning._warning;
+      warningBanner.style.display = "";
     } else {
-      appState.gridApi = agGrid.createGrid(pivotGrid, gridOptions);
+      warningBanner.style.display = "none";
     }
+
+    // 6. Show the grid card + debug card
+    pivotCard.style.display = "";
+    debugCard.style.display = "";
+
+    // 7. Enable Export (Phase 4 §12)
+    if (exportBtn) exportBtn.disabled = false;
   }
 
-  // ── AG Grid: swap theme class & re-create the grid when the OS theme ────
-  // ── changes (AG Grid's Alpine theme is a CSS class set at init time).   ──
-  function applyGridTheme(el) {
-    if (!el || !appState.gridApi) return;
-    const isDark = (window.ThemeManager && window.ThemeManager.getCurrentTheme() === "dark");
-    el.classList.toggle("ag-theme-alpine-dark", isDark);
-    el.classList.toggle("ag-theme-alpine",      !isDark);
+  // ════════════════════════════════════════════════════════════════════════
+  // STATS PANEL  (Phase 4 §10)
+  // ════════════════════════════════════════════════════════════════════════
+  function renderStats(data, context) {
+    if (!statsGrid || !statsCard) return;
+    const meta = data.metadata || {};
+    const aggs = data.aggregations || [];
+    const dataRows = (data.rows || []).filter(r => !(r && typeof r._warning === "string"));
+
+    const stats = [
+      { label: "Dataset",         value: context.datasetName || "—" },
+      { label: "Sheet",           value: meta.sheet_name || "—" },
+      { label: "Source Rows",     value: (meta.source_rows || 0).toLocaleString() },
+      { label: "Rows After Filters", value: (meta.filtered_rows || 0).toLocaleString() },
+      { label: "Pivot Rows Returned", value: dataRows.length.toLocaleString() },
+      { label: "Layout",          value: meta.layout === "compact" ? "Compact" : "Tabular" },
+      { label: "Date Grouping",   value: formatDateGrouping(meta.date_grouping || {}), muted: true },
+      { label: "Aggregations Used", value: formatAggregations(aggs), muted: true },
+    ];
+
+    statsGrid.innerHTML = "";
+    stats.forEach(s => {
+      const col = document.createElement("div");
+      col.className = "col-md-3 col-sm-6";
+      const valueClass = s.muted && !s.value
+        ? "stat-value text-muted"
+        : "stat-value";
+      col.innerHTML = `
+        <div class="pivot-stat">
+          <div class="stat-label">${escHtml(s.label)}</div>
+          <div class="${valueClass}">${s.value}</div>
+        </div>
+      `;
+      statsGrid.appendChild(col);
+    });
+    statsCard.style.display = "";
   }
 
-  document.addEventListener("theme:changed", () => {
-    if (pivotGrid) applyGridTheme(pivotGrid);
-  });
+  function formatDateGrouping(dg) {
+    const entries = Object.entries(dg || {});
+    if (!entries.length) return '<span class="text-muted">none</span>';
+    return entries
+      .map(([f, g]) => `<span class="pivot-agg-pill">${escHtml(f)} → ${escHtml(g)}</span>`)
+      .join("");
+  }
 
-  // ── Clear results / errors ───────────────────────────────────────────────
+  function formatAggregations(aggs) {
+    if (!aggs.length) return '<span class="text-muted">none</span>';
+    return aggs
+      .map(a => `<span class="pivot-agg-pill">${escHtml(a.field)}: ${escHtml(a.aggregation)}</span>`)
+      .join("");
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SELECTION BAR  (Phase 4 §3)
+  // ════════════════════════════════════════════════════════════════════════
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener("click", () => {
+      if (window.PivotGrid) window.PivotGrid.selectAll();
+    });
+  }
+  if (clearSelectionBtn) {
+    clearSelectionBtn.addEventListener("click", () => {
+      if (window.PivotGrid) window.PivotGrid.clearSelection();
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SEARCH  (Phase 4 §11)
+  // ════════════════════════════════════════════════════════════════════════
+  if (gridSearch) {
+    let searchTimer = null;
+    gridSearch.addEventListener("input", () => {
+      // Debounce so we don't recompute the quick filter on every keystroke.
+      clearTimeout(searchTimer);
+      const term = gridSearch.value;
+      searchTimer = setTimeout(() => {
+        if (window.PivotGrid) window.PivotGrid.setSearchTerm(term);
+      }, 120);
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // EXPORT  (Phase 4 §12)
+  // ════════════════════════════════════════════════════════════════════════
+  if (exportBtn) {
+    exportBtn.addEventListener("click", () => {
+      if (!window.PivotExport) {
+        showError("Export module not loaded.");
+        return;
+      }
+      const filename = window.PivotExport.exportCurrentView();
+      if (filename) {
+        // Briefly highlight the button so the user knows the file was saved.
+        const original = exportBtn.innerHTML;
+        exportBtn.classList.remove("btn-outline-success");
+        exportBtn.classList.add("btn-success");
+        exportBtn.innerHTML = '<i class="bi bi-check2 me-1"></i>Exported';
+        setTimeout(() => {
+          exportBtn.classList.add("btn-outline-success");
+          exportBtn.classList.remove("btn-success");
+          exportBtn.innerHTML = original;
+        }, 1500);
+      }
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // EMPTY STATES / CLEAR  (Phase 4 §14)
+  // ════════════════════════════════════════════════════════════════════════
+  function hideAllResults() {
+    if (pivotCard)     pivotCard.style.display = "none";
+    if (statsCard)     statsCard.style.display = "none";
+    if (selectionCard) selectionCard.style.display = "none";
+    if (warningBanner) warningBanner.style.display = "none";
+    if (exportBtn)     exportBtn.disabled = true;
+    if (metaStats)     metaStats.innerHTML = "";
+    if (window.PivotGrid) window.PivotGrid.clear();
+  }
+
+  function showEmptyState() {
+    if (emptyState) emptyState.style.display = "";
+  }
+  function hideEmptyState() {
+    if (emptyState) emptyState.style.display = "none";
+  }
+
   function clearResults() {
-    resultsTitle.textContent = "Pivot results will appear here";
-    metaStats.textContent = "";
-    pivotCard.style.display = "none";
-    if (appState.gridApi) appState.gridApi.setGridOption("rowData", []);
+    hideAllResults();
+    showEmptyState();
   }
 
-  // ── Stubs (Phase 4/5) ────────────────────────────────────────────────────
-  exportBtn.addEventListener("click", () => showError("Export to Excel is not yet implemented (planned for Phase 4)."));
-  saveBtn  .addEventListener("click", () => showError("Save pivot configuration is not yet implemented (planned for a later phase)."));
-
-  // ── Utilities ────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════
+  // UTILITIES
+  // ════════════════════════════════════════════════════════════════════════
   function showError(msg) {
+    if (!errorAlert) return;
     errorAlert.textContent = msg;
     errorAlert.classList.remove("d-none");
+    errorAlert.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
   function hideError() {
+    if (!errorAlert) return;
     errorAlert.classList.add("d-none");
     errorAlert.textContent = "";
   }
@@ -833,5 +992,6 @@
     return ({ sum: "primary", average: "info", count: "secondary",
               min: "warning", max: "danger" })[agg] || "light";
   }
+
   }  // end of main()
 })();

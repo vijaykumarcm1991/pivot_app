@@ -61,6 +61,12 @@
   />
   <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/dist/ag-grid-community.min.js"></script>
 
+  <!-- SheetJS (xlsx) — used by the Pivot page "Export" button to download
+       the current grid view as an .xlsx file. Loaded once globally so any
+       page that needs it (pivot page today, drilldown/email later) can use
+       `window.XLSX` without an extra <script> tag. -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
   <!-- Custom CSS -->
   <link rel="stylesheet" href="/static/css/styles.css" />
 </head>

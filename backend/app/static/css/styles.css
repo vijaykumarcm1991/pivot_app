@@ -231,3 +231,184 @@ pre {
 /* ── Btn-link colour in dark mode (for "Select all" / "Clear") ────────── */
 [data-bs-theme="dark"] .btn-link { color: #6ea8fe; }
 [data-bs-theme="dark"] .btn-link:hover { color: #8bb9fe; }
+
+
+/* ==========================================================================
+   Phase 4 — Pivot result UI
+   --------------------------------------------------------------------------
+   New visual elements:
+     - stat cards (Pivot Statistics panel)
+     - selection summary bar
+     - row totals / grand totals styling on the AG Grid
+     - loading overlay for the grid card
+     - empty state
+   ========================================================================== */
+
+/* ── Sticky action toolbar — keeps Generate / Export visible while scrolling */
+#actionsCard {
+  /* Bootstrap's `sticky-top` puts the card above the page content; raise the
+     z-index so it floats over the grid card too. */
+  z-index: 1020;
+  top: 0.5rem;
+  backdrop-filter: blur(6px);
+}
+#actionsCard .card-body {
+  background-color: var(--bs-card-bg, var(--bs-body-bg));
+}
+
+/* ── Stat blocks (Pivot Statistics panel) ──────────────────────────────── */
+.pivot-stat {
+  background-color: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: var(--pivot-app-card-radius);
+  padding: 0.5rem 0.75rem;
+  height: 100%;
+}
+.pivot-stat .stat-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--bs-secondary-color);
+  margin-bottom: 0.15rem;
+}
+.pivot-stat .stat-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--bs-body-color);
+  word-break: break-word;
+}
+.pivot-stat .stat-value.text-muted {
+  font-weight: 400;
+  font-style: italic;
+}
+
+/* ── Selection card ────────────────────────────────────────────────────── */
+#selectionCard .card-body {
+  background-color: var(--bs-tertiary-bg);
+  border-top: 1px solid var(--bs-border-color-translucent);
+  border-radius: 0 0 var(--pivot-app-card-radius) var(--pivot-app-card-radius);
+}
+
+/* ── Grid card — keep header above scroll area, search box inline ─────── */
+#pivotCard .card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+#pivotCard .card-header .form-control {
+  background-color: var(--bs-body-bg);
+}
+
+/* ── Loading overlay (covers the grid during compute) ──────────────────── */
+#gridLoadingOverlay {
+  background-color: rgba(255, 255, 255, 0.65);
+  z-index: 5;
+  border-radius: var(--pivot-app-card-radius);
+}
+[data-bs-theme="dark"] #gridLoadingOverlay {
+  background-color: rgba(0, 0, 0, 0.55);
+}
+
+/* ── AG Grid cell formatting for pivot result ──────────────────────────── */
+
+/* Numeric cells: right-align + tabular figures for clean column look. */
+.ag-theme-alpine .pivot-number-cell,
+.ag-theme-alpine-dark .pivot-number-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Row totals: distinct background, bold. */
+.ag-theme-alpine .pivot-row-total-cell,
+.ag-theme-alpine-dark .pivot-row-total-cell {
+  background-color: rgba(13, 110, 253, 0.08);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  border-left: 2px solid rgba(13, 110, 253, 0.25);
+}
+[data-bs-theme="dark"] .ag-theme-alpine-dark .pivot-row-total-cell {
+  background-color: rgba(13, 110, 253, 0.18);
+  border-left-color: rgba(13, 110, 253, 0.45);
+}
+
+/* Row totals column header */
+.ag-theme-alpine .pivot-row-total-header,
+.ag-theme-alpine-dark .pivot-row-total-header {
+  background-color: rgba(13, 110, 253, 0.12) !important;
+  font-weight: 700;
+  border-left: 2px solid rgba(13, 110, 253, 0.3);
+}
+
+/* Grand totals pinned row (bottom). */
+.ag-theme-alpine .pivot-grand-total-row,
+.ag-theme-alpine-dark .pivot-grand-total-row {
+  background-color: rgba(25, 135, 84, 0.10) !important;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-top: 2px solid rgba(25, 135, 84, 0.5);
+}
+[data-bs-theme="dark"] .ag-theme-alpine-dark .pivot-grand-total-row {
+  background-color: rgba(25, 135, 84, 0.20) !important;
+  border-top-color: rgba(25, 135, 84, 0.7);
+}
+.ag-theme-alpine .pivot-grand-total-row .pivot-number-cell,
+.ag-theme-alpine-dark .pivot-grand-total-row .pivot-number-cell,
+.ag-theme-alpine .pivot-grand-total-row .pivot-row-total-cell,
+.ag-theme-alpine-dark .pivot-grand-total-row .pivot-row-total-cell {
+  background-color: transparent !important;
+  border-left: none;
+}
+
+/* Group column (auto-generated for multi-row pivots) */
+.ag-theme-alpine .pivot-group-cell,
+.ag-theme-alpine-dark .pivot-group-cell {
+  font-weight: 500;
+}
+
+/* ── Empty state card ─────────────────────────────────────────────────── */
+#emptyState .bi {
+  display: block;
+}
+[data-bs-theme="dark"] #emptyState .bi {
+  opacity: 0.4;
+}
+
+/* ── Disabled future-phase buttons — make them look "reserved" ─────────── */
+.btn-reserved {
+  position: relative;
+}
+.btn-reserved::after {
+  content: "soon";
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background-color: var(--bs-secondary);
+  color: var(--bs-body-bg);
+  padding: 1px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* ── Warning banner above the grid (when backend truncated rows) ──────── */
+#warningBanner {
+  margin-bottom: 1rem;
+}
+
+/* ── Inline subtle pill for metadata "aggregations" list ─────────────── */
+.pivot-agg-pill {
+  display: inline-block;
+  background-color: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+  margin: 0.1rem 0.2rem 0.1rem 0;
+  font-weight: 500;
+}
