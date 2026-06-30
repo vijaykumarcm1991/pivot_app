@@ -41,6 +41,11 @@ PANDAS_AGGREGATIONS = {value: key for key, value in AGGREGATIONS.items()}
 
 DATE_GROUPS = {"year", "quarter", "month", "week", "day"}
 
+# Placeholder for null values in row / column group fields. Mirrors
+# Excel's behaviour — null values in a row field show as "(blank)" rather
+# than being excluded from the pivot.
+NULL_PLACEHOLDER = "(blank)"
+
 
 class PivotError(ValueError):
     """Raised when a pivot request is invalid or cannot be computed."""
@@ -330,15 +335,37 @@ def _compute_pivot_rows(
             f"(Current: {unique_rows} unique row groups × {unique_cols} unique column groups × {len(value_fields)} value fields)"
         )
 
+    # Critical fix: replace null values in the group fields with a string
+    # placeholder BEFORE calling pd.pivot_table.
+    #
+    # pandas' pivot_table with multiple row fields and `dropna=False`
+    # builds the **cartesian product** of all distinct values in each row
+    # level (because each level is treated as an independent category
+    # index). For example, with Issue_Category (64 distinct incl. NaN) ×
+    # Unit (30) × Affected_CI (353) the pivot produced 677,760 rows
+    # even though only 588 unique combinations exist in the source data.
+    # The pre-pivot size estimate `df[group_rows].drop_duplicates()`
+    # returns 588, so the cap isn't triggered and the user is left with
+    # a 670k-row pivot that overflows the 10,000-row result limit.
+    #
+    # Substituting NaN with a literal string and using `dropna=True`
+    # gives us Excel-like behaviour: null values appear as "(blank)" in
+    # the result, and the row count is exactly the number of distinct
+    # combinations present in the data.
+    pivot_input = df.copy()
+    for col in (group_rows or []) + (group_columns or []):
+        if pivot_input[col].isna().any():
+            pivot_input[col] = pivot_input[col].fillna(NULL_PLACEHOLDER)
+
     try:
         pivot_df = pd.pivot_table(
-            df,
+            pivot_input,
             values=value_fields,
             index=index,
             columns=columns,
             aggfunc=aggfunc,
             fill_value=0,
-            dropna=False,
+            dropna=True,
             observed=True,
         )
     except MemoryError as exc:
@@ -375,12 +402,18 @@ def _compute_pivot_rows(
 
     rows = _df_to_records(pivot_df)
 
-    # Limit number of rows in result
-    if len(rows) > MAX_PIVOT_RESULT_ROWS:
-        # Sample rows for preview, but warn the user
+    # Limit number of rows in result. Capture the original count BEFORE
+    # truncation so the warning message is accurate.
+    original_row_count = len(rows)
+    if original_row_count > MAX_PIVOT_RESULT_ROWS:
         rows = rows[:MAX_PIVOT_RESULT_ROWS]
-        # Add a warning row
-        warning_row = {"_warning": f"Only showing first {MAX_PIVOT_RESULT_ROWS:,} of {len(rows):,} rows due to size limits"}
+        warning_row = {
+            "_warning": (
+                f"Result truncated to first {MAX_PIVOT_RESULT_ROWS:,} of "
+                f"{original_row_count:,} rows due to size limits. "
+                f"Apply filters or reduce grouping fields to see all rows."
+            )
+        }
         rows.insert(0, warning_row)
 
     if layout == "compact" and len(group_rows) > 1:
