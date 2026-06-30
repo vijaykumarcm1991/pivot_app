@@ -11,6 +11,9 @@ mailing.
 
 | Commit    | Description                                                                                       |
 | --------- | ------------------------------------------------------------------------------------------------- |
+| (latest)  | Add view controls on `/pivot`: hidable configuration panel + fullscreen pivot result overlay.     |
+| (latest)  | Fix tabular view: row fields are now shown as their own columns (no auto "Group" column collapse). |
+| `fa4b8ca` | Phase 4 implemented — Excel-like AG Grid result UI, Pivot Statistics, client-side Excel export.   |
 | `f782c81` | Fix pivot grid: use `colDefs` (defined) instead of undefined `columnDefs` — AG Grid now renders.  |
 | `7bfba51` | Fix bug: uploaded dataset not showing in pivot page dropdown (defensive init + lazy filter modal). |
 | `e645b28` | Dark mode: fix black/grey text on white background contrast issues.                               |
@@ -52,6 +55,30 @@ mailing.
     configuration against stored metadata without ever loading the file
   - compute endpoint (`POST /api/pivot`) — runs pandas on the backend
   - drilldown (`POST /api/pivot/drilldown`)
+- **Excel-like AG Grid result** (Phase 4) with:
+  - column resize / reorder / sort / filter / text search (quickFilter)
+  - sticky header, pagination (20 / 50 / 100 / 200), horizontal scroll
+  - checkbox row selection (single + multi, Select All, Clear) and three
+    counters — Selected / Visible / Groups
+  - pinned-bottom **Grand Total** row (green tint) and **Row Total**
+    column (blue tint)
+  - **Compact + Tabular** layouts: tabular shows every row field as its
+    own column (one column per row field), compact combines them into a
+    single `Rows` column with `"a / b / c"` paths.
+  - **Pivot Statistics panel** with 8 stat cards (Dataset, Sheet, Source
+    Rows, Rows After Filters, Pivot Rows, Layout, Date Grouping,
+    Aggregations).
+- **Client-side Excel export** of the current view via SheetJS — headers,
+  visible rows in current sort + filter order, grand total row appended.
+- **View controls on the Pivot page** (post-Phase 4):
+  - **Hide / Show configuration panel** — collapses the left
+    configuration column; the result column expands to full width.
+  - **Fullscreen pivot result** — overlay that makes the result panel
+    cover the viewport with the grid growing to `calc(100vh - 240px)`.
+    **ESC** also exits fullscreen. The debug / JSON card is auto-hidden
+    in fullscreen to keep focus on the result.
+  - Both buttons live in the sticky actions card so they're always
+    reachable. State is in-memory only (resets on reload).
 - **Light / Dark / System theme** with a navbar toggle.
   - Defaults to **System** (follows the OS `prefers-color-scheme`).
   - Preference is persisted in `localStorage` under `pivot-theme`.
@@ -101,10 +128,12 @@ pivot-app/
 │   │   ├── static/
 │   │   │   ├── css/styles.css
 │   │   │   └── js/
-│   │   │       ├── theme.js       ← light / dark / system theme switcher
+│   │   │       ├── theme.js          ← light / dark / system theme switcher
 │   │   │       ├── upload.js
 │   │   │       ├── manage.js
-│   │   │       └── pivot.js
+│   │   │       ├── pivot.js          ← controller (~1000 lines)
+│   │   │       ├── pivot-grid.js     ← AG Grid wrapper (Phase 4)
+│   │   │       └── pivot-export.js   ← SheetJS exporter (Phase 4)
 │   │   ├── templates/
 │   │   │   ├── base.html
 │   │   │   ├── upload.html
@@ -123,11 +152,24 @@ pivot-app/
 │   └── nginx.conf
 ├── build_start.sh
 ├── docker-compose.yml
+├── PIVOT_CONTRACT.md
 ├── Phase1
 ├── Phase2
 ├── Phase3
+├── Phase4
 └── README.md
 ```
+
+### Frontend module split (`backend/app/static/js/`)
+
+| File | Role |
+| --- | --- |
+| `pivot.js`        | Controller — owns `appState`, left config panel, `buildPayload()`, validate / compute flow, stats panel, selection bar, search input, export orchestration, view toggles (hide config / fullscreen), defensive `try { main() } catch` init, lazy filter modal, theme listener. |
+| `pivot-grid.js`   | Pure AG Grid wrapper. Exposes `window.PivotGrid` with `render / clear / getSelectedRows / getSelectedCount / getSelectedGroups / getTotalRowCount / selectAll / clearSelection / setSearchTerm / getVisibleColumns / getVisibleRows / getLastResponse / getLastContext`. |
+| `pivot-export.js` | SheetJS export. Exposes `window.PivotExport.exportCurrentView()` and `setNotifier()`. Mirrors what the user sees in the grid. |
+| `manage.js`       | `/manage` page: dataset + sheet selection, column type table, AG Grid preview, delete flow, theme listener. |
+| `upload.js`       | Drag-and-drop + form submit for the upload page. |
+| `theme.js`        | `window.ThemeManager` — `setMode / getStoredMode / getCurrentTheme / syncToggleUI / applyTheme`; dispatches `theme:changed` CustomEvent. |
 
 ## Startup
 
@@ -442,6 +484,42 @@ The same ratio holds for table headers, card bodies, and badge text.
 15. Review the code — UI logic, validation logic and API logic are cleanly
     separated (see `pivot_validation_service.py` vs `pivot_service.py`).
 
+### Phase 4
+
+1. Generate a pivot — AG Grid renders with all columns visible.
+2. Resize / reorder / sort / filter columns.
+3. Type in the search box → only matching rows stay visible.
+4. Select one or more rows — the **Selection** counter updates.
+5. Click **Select All** (visible) / **Clear** — counts update accordingly.
+6. **Tabular** layout with 2+ row fields → each row field is its **own
+   column** (no auto "Group" column collapse). The grid should look like a
+   flat Excel pivot, with the value columns on the right.
+7. **Compact** layout with 2+ row fields → row fields are merged into a
+   single `Rows` column with values like `"a / b / c"`.
+8. Toggle Grand Totals / Row Totals on / off — pinned row / column update.
+9. Click **Export** → an `.xlsx` file downloads containing the headers,
+   visible rows in current sort + filter order, and the grand total row.
+10. Refresh / regenerate the pivot — stale data is cleared before the new
+    result paints.
+
+### View controls (post-Phase 4)
+
+1. Click **Hide Config** in the actions card → the left configuration
+   column collapses; the result column expands to full width. The button
+   icon flips to `chevron-double-right` and the label becomes
+   **Show Config**.
+2. Click **Show Config** → the configuration column reappears and the
+   result column goes back to `col-lg-8`.
+3. Click **Fullscreen** → the result panel becomes a fixed overlay
+   covering the viewport; the grid grows to `calc(100vh - 240px)`; the
+   debug card is auto-hidden. The button icon becomes
+   `fullscreen-exit` and the label becomes **Exit Fullscreen**.
+4. Press **ESC** (or click the fullscreen button again) → the overlay
+   closes and the page returns to the normal layout.
+5. Combine both: hide the config panel **and** enter fullscreen — the
+   result should fill the entire viewport, the config stays hidden, and
+   the two toggles remain independent.
+
 ## Pivot Architecture
 
 - `pivot_routes.py` exposes the Phase 3 APIs.
@@ -457,6 +535,21 @@ The same ratio holds for table headers, card bodies, and badge text.
   configuration and rendering the response.
 - Drilldown reuses the same filter and date-grouping path, then applies the
   selected row/column values to return matching raw records.
+
+## View Controls (Pivot page)
+
+Two buttons in the sticky **actions card** (top of the result panel)
+control how the result is presented:
+
+| Button | Effect | Implementation |
+| --- | --- | --- |
+| **Hide / Show Config** | Toggles `#configPanel` (`col-lg-4`) on / off. The result column flips between `col-lg-8` and `col-lg-12`. | `pivot.js` → `setConfigHidden()` |
+| **Fullscreen** | Toggles `.pivot-fullscreen` on `#resultPanel` (position: fixed, full viewport, `z-index: 1050`). Grid grows to `calc(100vh - 240px)`. Body scroll is locked. Debug card is hidden. **ESC** also exits. | `pivot.js` → `setFullscreen()` + `keydown` listener |
+
+Both buttons update their icon, label, and ARIA state (`aria-expanded` /
+`aria-pressed`) on toggle. The state is in-memory only and resets on page
+reload. The CSS lives in `backend/app/static/css/styles.css` (see
+`.pivot-fullscreen`, `body.pivot-fullscreen-active`).
 
 ## Performance Considerations
 
@@ -486,3 +579,26 @@ The same ratio holds for table headers, card bodies, and badge text.
   (proxied by Nginx in production).
 - Uploaded files, generated reports, and SQLite data are persisted through
   Docker volumes.
+- **Phase 4 frontend split** (under `backend/app/static/js/`):
+  - `pivot.js` is the controller. It owns the configuration UI, the
+    validate / compute flow, the stats / selection / search orchestration,
+    the empty-state machinery, the view toggles (hide config / fullscreen),
+    the defensive `try { main() } catch` init, and the lazy filter-modal
+    helper that prevents a missing Bootstrap from breaking the page.
+  - `pivot-grid.js` is a pure AG Grid wrapper. It exposes a small API
+    (`render / clear / getSelectedRows / getSelectedCount / getSelectedGroups
+    / selectAll / clearSelection / setSearchTerm / getVisibleColumns /
+    getVisibleRows / getLastResponse / getLastContext`) and reuses the
+    same grid instance across renders via `setGridOption`.
+  - `pivot-export.js` is a thin SheetJS wrapper that exports the
+    currently visible view (headers, visible rows in sort + filter order,
+    grand total row appended) to `.xlsx`.
+  - `theme.js` exposes `window.ThemeManager` and re-skins the AG Grid
+    wrapper on `theme:changed` without a re-init.
+- **Tabular view, 2+ row fields**: `pivot-grid.js` renders every
+  `response.columns` entry as a regular column — row fields are **not**
+  collapsed into an auto-generated "Group" column. The Excel export
+  mirrors the grid exactly.
+- **View toggles**: hidable config panel and fullscreen result overlay
+  live in `pivot.js` (`setConfigHidden`, `setFullscreen`) and CSS in
+  `styles.css` (`.pivot-fullscreen`, `body.pivot-fullscreen-active`).

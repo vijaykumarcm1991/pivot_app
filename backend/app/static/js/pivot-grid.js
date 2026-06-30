@@ -22,11 +22,13 @@
  * - We deliberately reuse the grid instance across renders
  *   (`setGridOption` instead of `destroy` + `createGrid`) for performance
  *   (Phase 4 spec §13).
- * - For multi-row pivots the row field columns get `rowGroup: true`. AG
- *   Grid hides the originals and renders a single auto-generated
- *   "Group" column (configured via `groupColumnDef`) with expand/collapse
- *   controls. The original columns are filtered out of `getVisibleColumns`
- *   so the export doesn't include them.
+ * - Tabular mode (the default) shows every response column as a regular
+ *   column — row fields are NOT collapsed into a "Group" column. This
+ *   matches Excel's tabular pivot layout: one column per row field, side
+ *   by side.
+ * - In compact mode the backend has already merged multiple row fields
+ *   into a single "Rows" column, so the grid shows that combined column
+ *   followed by the value columns. Nothing special needed on the frontend.
  * - The grand total row is rendered as a `pinnedBottomRowData` entry; it
  *   picks up the `pivot-grand-total-row` class via `rowClassRules` for
  *   visual emphasis.
@@ -82,7 +84,6 @@
     applyGridTheme(el);
 
     const columnDefs    = buildColumnDefs(response);
-    const groupColumnDef = buildGroupColumnDef(response);
     const pinnedBottom  = buildPinnedBottomRow(response);
 
     if (gridApi) {
@@ -90,9 +91,6 @@
       gridApi.setGridOption("columnDefs", columnDefs);
       gridApi.setGridOption("rowData", lastDataRows);
       gridApi.setGridOption("pinnedBottomRowData", pinnedBottom ? [pinnedBottom] : []);
-      if (groupColumnDef) {
-        gridApi.setGridOption("groupColumnDef", groupColumnDef);
-      }
       applyGridTheme(el);
       return;
     }
@@ -110,9 +108,6 @@
         if (window.PivotGrid) updateSelectionSummary();
       },
     });
-    if (groupColumnDef) {
-      gridOptions.groupColumnDef = groupColumnDef;
-    }
 
     gridApi = agGrid.createGrid(el, gridOptions);
   }
@@ -179,30 +174,21 @@
 
   // ── Public: for export ───────────────────────────────────────────────────
   /**
-   * Return the columns the user actually sees, in display order. Excludes
-   * the row-field columns that AG Grid hides when rowGroup is on.
-   * The auto-generated "Group" column is represented by an entry with
-   * `colId: "pivot-group-col"` so the export can reconstruct the path
-   * from the row data.
+   * Return the columns the user actually sees, in display order.
+   *
+   * In tabular mode every response column (including all row-field columns)
+   * is shown as a regular column — we just return them in the order the
+   * backend sent them.
+   *
+   * In compact mode the backend has already merged multiple row fields
+   * into a single "Rows" column, so `response.columns` contains that one
+   * merged column plus the value columns. Returning everything in order
+   * matches what the user sees in the grid.
    */
   function getVisibleColumns() {
     if (!lastResponse) return [];
-    const meta      = lastResponse.metadata || {};
-    const rowFields = meta.rows || [];
-    const isCompact = meta.layout === "compact";
-    const shouldGroup = !isCompact && rowFields.length > 1;
     const totalCols = lastResponse.columns || [];
-
-    const cols = [];
-    if (shouldGroup) {
-      cols.push({ field: null, headerName: "Group", colId: "pivot-group-col" });
-    }
-    totalCols.forEach(col => {
-      const isRowField = rowFields.includes(col);
-      if (shouldGroup && isRowField) return;     // hidden by rowGroup
-      cols.push({ field: col, headerName: col });
-    });
-    return cols;
+    return totalCols.map(col => ({ field: col, headerName: col }));
   }
 
   /**
@@ -226,26 +212,18 @@
   // Internals
   // ════════════════════════════════════════════════════════════════════════
   function buildColumnDefs(response) {
-    const meta      = response.metadata || {};
-    const rowFields = meta.rows || [];
-    const isCompact = meta.layout === "compact";
     const totalCols = response.columns || [];
+    const rowTotalField = (response.totals && response.totals.row_total_field) || "row_total";
 
-    const shouldGroup = !isCompact && rowFields.length > 1;
-
+    // Tabular mode (the default) shows EVERY response column as a regular
+    // column — each row field is its own column, side by side. This is the
+    // expected Excel-like behaviour and the user-facing fix.
+    //
+    // In compact mode the backend already merges all row fields into a
+    // single "Rows" column, so `totalCols` doesn't include the individual
+    // row-field names and there's nothing special to do here either.
     return totalCols.map(col => {
-      const isRowField = rowFields.includes(col);
-      const isRowTotal = col === "row_total";
-      const isPivoted  = shouldGroup && isRowField;
-
-      if (isPivoted) {
-        return {
-          field: col,
-          headerName: col,
-          rowGroup: true,
-          hide: true,
-        };
-      }
+      const isRowTotal = col === rowTotalField;
       return {
         field: col,
         headerName: col,
@@ -258,24 +236,6 @@
         headerClass: isRowTotal ? "pivot-row-total-header" : null,
       };
     });
-  }
-
-  /**
-   * Customise the auto-generated group column for multi-row pivots. We
-   * only return a value when rowGroup is actually used; otherwise AG
-   * Grid's default behaviour (no group column) is correct.
-   */
-  function buildGroupColumnDef(response) {
-    const meta      = response.metadata || {};
-    const rowFields = meta.rows || [];
-    const isCompact = meta.layout === "compact";
-    if (isCompact || rowFields.length < 2) return null;
-    return {
-      headerName: "Group",
-      minWidth: 220,
-      cellRendererParams: { suppressCount: false },
-      cellClass: "pivot-group-cell",
-    };
   }
 
   function computeCellClass(params, isRowTotal) {

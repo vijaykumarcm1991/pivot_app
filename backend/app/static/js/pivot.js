@@ -120,6 +120,10 @@
   const computeBtn        = document.getElementById("computeBtn");
   const validateBtn       = document.getElementById("validateBtn");
   const exportBtn         = document.getElementById("exportBtn");
+  const toggleConfigBtn   = document.getElementById("toggleConfigBtn");
+  const fullscreenBtn     = document.getElementById("fullscreenBtn");
+  const configPanel       = document.getElementById("configPanel");
+  const resultPanel       = document.getElementById("resultPanel");
   const loadingSpinner    = document.getElementById("loadingSpinner");
   const metaStats         = document.getElementById("metaStats");
   const errorAlert        = document.getElementById("errorAlert");
@@ -965,6 +969,111 @@
     hideAllResults();
     showEmptyState();
   }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // VIEW CONTROLS — hideable config panel + fullscreen pivot result
+  // ════════════════════════════════════════════════════════════════════════
+
+  // Track the current state of the two view toggles so we can update
+  // button icons, aria attributes, and the result-panel column class
+  // correctly.
+  let configHidden  = false;
+  let isFullscreen  = false;
+
+  /**
+   * Show / hide the left-side configuration panel. When hidden, the
+   * result panel switches from col-lg-8 to col-lg-12 so it fills the row.
+   */
+  function setConfigHidden(hidden) {
+    if (!configPanel || !resultPanel) return;
+    configHidden = !!hidden;
+
+    if (configHidden) {
+      configPanel.classList.add("d-none");
+      resultPanel.classList.remove("col-lg-8");
+      resultPanel.classList.add("col-lg-12");
+    } else {
+      configPanel.classList.remove("d-none");
+      resultPanel.classList.remove("col-lg-12");
+      resultPanel.classList.add("col-lg-8");
+    }
+
+    // Update the toggle button's icon + label + aria state.
+    if (toggleConfigBtn) {
+      const icon = toggleConfigBtn.querySelector("i");
+      const label = toggleConfigBtn.querySelector("span");
+      if (icon) {
+        icon.className = configHidden
+          ? "bi bi-chevron-double-right"
+          : "bi bi-chevron-double-left";
+      }
+      if (label) {
+        label.textContent = configHidden ? "Show Config" : "Hide Config";
+      }
+      toggleConfigBtn.title = configHidden
+        ? "Show pivot configuration panel"
+        : "Hide pivot configuration panel";
+      toggleConfigBtn.setAttribute("aria-expanded", configHidden ? "false" : "true");
+    }
+
+    // The grid needs to know its container changed size.
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+
+  /**
+   * Enter / exit a CSS-overlay "fullscreen" mode for the result panel.
+   * The panel is positioned `fixed` covering the viewport and the grid
+   * grows to fill the available space. The page body is locked so only
+   * the result panel scrolls.
+   */
+  function setFullscreen(active) {
+    if (!resultPanel) return;
+    isFullscreen = !!active;
+
+    resultPanel.classList.toggle("pivot-fullscreen", isFullscreen);
+    document.body.classList.toggle("pivot-fullscreen-active", isFullscreen);
+
+    if (fullscreenBtn) {
+      const icon = fullscreenBtn.querySelector("i");
+      const label = fullscreenBtn.querySelector("span");
+      if (icon) {
+        icon.className = isFullscreen
+          ? "bi bi-fullscreen-exit"
+          : "bi bi-arrows-fullscreen";
+      }
+      if (label) {
+        label.textContent = isFullscreen ? "Exit Fullscreen" : "Fullscreen";
+      }
+      fullscreenBtn.title = isFullscreen
+        ? "Exit fullscreen (Esc)"
+        : "Expand pivot result to full screen";
+      fullscreenBtn.setAttribute("aria-pressed", isFullscreen ? "true" : "false");
+    }
+
+    // AG Grid watches the container size with a ResizeObserver and
+    // re-flows automatically, but firing a `resize` event is a cheap
+    // belt-and-braces nudge for the first paint after the toggle.
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+
+  if (toggleConfigBtn) {
+    toggleConfigBtn.addEventListener("click", () => setConfigHidden(!configHidden));
+  }
+  if (fullscreenBtn) {
+    fullscreenBtn.addEventListener("click", () => setFullscreen(!isFullscreen));
+  }
+
+  // ESC exits fullscreen — standard convention for fullscreen overlays.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && isFullscreen) {
+      e.preventDefault();
+      setFullscreen(false);
+    }
+  });
 
   // ════════════════════════════════════════════════════════════════════════
   // UTILITIES

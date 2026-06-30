@@ -31,7 +31,7 @@
   {# ────────────────────────────────────────────────────────────────────────
      LEFT PANEL — Pivot Configuration (Phase 3 — unchanged)
      ──────────────────────────────────────────────────────────────────────── #}
-  <div class="col-lg-4">
+  <div class="col-lg-4 pivot-config-col" id="configPanel">
 
     {# Dataset & sheet selection #}
     <div class="card border-0 shadow-sm mb-3">
@@ -260,11 +260,32 @@
   {# ────────────────────────────────────────────────────────────────────────
      RIGHT PANEL — Pivot Result (Phase 4)
      ──────────────────────────────────────────────────────────────────────── #}
-  <div class="col-lg-8">
+  <div class="col-lg-8 pivot-result-col" id="resultPanel">
 
-    {# Sticky action toolbar — Generate / Validate / Export #}
+    {# Sticky action toolbar — Generate / Validate / Export + view toggles #}
     <div class="card border-0 shadow-sm mb-3 sticky-top" id="actionsCard">
       <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+        {# View controls — hide config / fullscreen result #}
+        <div class="btn-group btn-group-sm me-2" role="group" aria-label="View controls">
+          <button id="toggleConfigBtn"
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  title="Hide pivot configuration panel"
+                  aria-label="Toggle configuration panel"
+                  aria-expanded="true">
+            <i class="bi bi-chevron-double-left"></i>
+            <span class="d-none d-lg-inline ms-1">Config</span>
+          </button>
+          <button id="fullscreenBtn"
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  title="Expand pivot result to full screen (Esc to exit)"
+                  aria-label="Toggle fullscreen"
+                  aria-pressed="false">
+            <i class="bi bi-arrows-fullscreen"></i>
+            <span class="d-none d-lg-inline ms-1">Fullscreen</span>
+          </button>
+        </div>
         <button id="validateBtn" class="btn btn-outline-info btn-sm" disabled title="Validate configuration">
           <i class="bi bi-shield-check me-1"></i>Validate
         </button>

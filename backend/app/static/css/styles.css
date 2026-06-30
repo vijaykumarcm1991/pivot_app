@@ -412,3 +412,86 @@ pre {
   margin: 0.1rem 0.2rem 0.1rem 0;
   font-weight: 500;
 }
+
+
+/* ==========================================================================
+   View controls — hidable config panel + fullscreen pivot result
+   --------------------------------------------------------------------------
+   - #configPanel  : the left col-lg-4 pivot configuration column
+   - #resultPanel  : the right col-lg-8 pivot result column
+   - .pivot-fullscreen  : applied to #resultPanel when fullscreen is on
+   - .pivot-fullscreen-active  : applied to <body> to lock the page scroll
+   ========================================================================== */
+
+/* Smooth transition when the config panel is hidden/shown */
+#configPanel,
+#resultPanel {
+  transition: none;
+}
+
+/* When the body is locked, the result panel becomes the only scroller */
+body.pivot-fullscreen-active {
+  overflow: hidden;
+}
+
+/* ── Fullscreen pivot result overlay ─────────────────────────────────── */
+#resultPanel.pivot-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1050;
+  margin: 0 !important;
+  padding: 1rem;
+  width: 100% !important;
+  max-width: none !important;
+  flex: 0 0 100% !important;
+  background-color: var(--bs-body-bg);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Inside the fullscreen overlay, sticky-top sticks to the scrollable
+   area, so the actions toolbar (with Generate / Export / view toggles)
+   stays visible while the user scrolls the result cards. */
+#resultPanel.pivot-fullscreen .sticky-top {
+  top: 0;
+}
+
+/* Make the grid fill almost the full viewport in fullscreen mode so the
+   user gets a much larger table to work with. */
+#resultPanel.pivot-fullscreen #pivotGrid {
+  height: calc(100vh - 240px) !important;
+  width: 100% !important;
+}
+
+/* In fullscreen, hide the debug / JSON cards by default to keep the
+   focus on the result. The user can still scroll to see them, but the
+   page is dominated by the grid + stats + selection. */
+#resultPanel.pivot-fullscreen #debugCard {
+  display: none !important;
+}
+
+/* ── View-control button group — match the existing action toolbar ─── */
+#actionsCard .btn-group[aria-label="View controls"] .btn {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Subtle hover hint that the config panel is currently visible / hidden */
+#toggleConfigBtn[aria-expanded="false"] {
+  background-color: var(--bs-tertiary-bg);
+}
+
+/* When fullscreen is on, give the fullscreen button a pressed look */
+#fullscreenBtn[aria-pressed="true"] {
+  background-color: var(--bs-primary);
+  color: #fff;
+  border-color: var(--bs-primary);
+}
+#fullscreenBtn[aria-pressed="true"]:hover {
+  background-color: var(--bs-primary);
+  color: #fff;
+  filter: brightness(0.95);
+}
