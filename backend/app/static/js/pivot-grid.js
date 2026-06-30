@@ -15,7 +15,16 @@
  *   getVisibleColumns()               — column defs in display order, no hidden
  *   getVisibleRows()                  — row data in current sort/filter order
  *   getLastResponse()                 — last PivotResponse passed to render()
- *   getLastContext()                  — { datasetName, sheetName } from render()
+ *   getLastContext()                  — { datasetName, sheetName, onRowDoubleClick, … } from render()
+ *
+ * Context callbacks
+ * -----------------
+ * The `context` argument passed to render() may contain:
+ *   - datasetName, sheetName: used for export filename + DrilldownManager
+ *   - onRowDoubleClick(row, event): invoked when the user double-clicks a
+ *     data row (excludes the grand-total pinned row). Used by Phase 5 to
+ *     open the drill-down modal. The callback is wired on the first
+ *     render and persists across `setGridOption` updates.
  *
  * Design notes
  * ------------
@@ -104,6 +113,12 @@
       onSelectionChanged: () => window.PivotGrid && updateSelectionSummary(),
       onFilterChanged:    () => window.PivotGrid && updateSelectionSummary(),
       onSortChanged:      () => window.PivotGrid && updateSelectionSummary(),
+      onRowDoubleClicked: (event) => {
+        if (event && event.data && !event.data.__isGrandTotal &&
+            typeof context.onRowDoubleClick === "function") {
+          context.onRowDoubleClick(event.data, event);
+        }
+      },
       onGridReady:        () => {
         if (window.PivotGrid) updateSelectionSummary();
       },

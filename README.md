@@ -11,6 +11,7 @@ mailing.
 
 | Commit    | Description                                                                                       |
 | --------- | ------------------------------------------------------------------------------------------------- |
+| (latest)  | **Phase 5 — Drill-down**: double-click or multi-select pivot rows → Bootstrap modal with raw records, dedup, search, column visibility, matching-criteria card, summary card, and reusable Excel export. |
 | (latest)  | Add view controls on `/pivot`: hidable configuration panel + fullscreen pivot result overlay.     |
 | (latest)  | Fix tabular view: row fields are now shown as their own columns (no auto "Group" column collapse). |
 | `fa4b8ca` | Phase 4 implemented — Excel-like AG Grid result UI, Pivot Statistics, client-side Excel export.   |
@@ -70,6 +71,36 @@ mailing.
     Aggregations).
 - **Client-side Excel export** of the current view via SheetJS — headers,
   visible rows in current sort + filter order, grand total row appended.
+- **Drill-down on pivot rows** (Phase 5) — open the raw records behind any
+  pivot result in a Bootstrap modal:
+  - **Two triggers** — double-click a pivot row, *or* select one or more
+    rows and click the new **Drill-down** button in the action toolbar.
+  - **Multi-row drilldown with deduplication** — selecting several rows
+    produces a single merged view; identical raw records are detected
+    via a stable JSON key (`Object.keys(record).sort().map(...)`) and
+    never appear twice. `metadata.matched_rows` is the additive total;
+    `metadata.returned_rows` is the post-dedup count.
+  - **Selection summary card** — Dataset, Sheet, Selected Pivot Rows,
+    Matching Records, Returned Records, populated from the drilldown
+    response metadata.
+  - **Matching criteria card** — pills like `Region = North`,
+    `Category = Payments` so the user can see exactly which pivot
+    values produced the records on screen.
+  - **Dedicated AG Grid** (independent from the pivot grid) with
+    sorting, filtering, column resizing, pagination, and built-in
+    copy (Ctrl+C copies the selected cells, or the whole row when
+    no cells are selected).
+  - **Search box** (quick filter) filters the grid immediately.
+  - **Column visibility menu** — show / hide / "all" / "none" / reset.
+  - **Polished UI** — sticky header, sticky toolbar, record counter,
+    loading overlay with progress (`"3 / 5 groups · Region=North"`),
+    and a friendly empty state when no records match.
+  - **Excel export** of the visible drill-down view — headers,
+    current sort, current filter, visible columns only. The same
+    helper (`DrilldownExport.buildWorkbookFromView`) is the reusable
+    form for the upcoming **email phase** (Phase 6) — it accepts any
+    `(columns, rows)` pair and returns a SheetJS workbook ready to
+    be attached to an email, no backend round-trip required.
 - **View controls on the Pivot page** (post-Phase 4):
   - **Hide / Show configuration panel** — collapses the left
     configuration column; the result column expands to full width.
@@ -131,9 +162,12 @@ pivot-app/
 │   │   │       ├── theme.js          ← light / dark / system theme switcher
 │   │   │       ├── upload.js
 │   │   │       ├── manage.js
-│   │   │       ├── pivot.js          ← controller (~1000 lines)
+│   │   │       ├── pivot.js          ← controller (~1100 lines)
 │   │   │       ├── pivot-grid.js     ← AG Grid wrapper (Phase 4)
-│   │   │       └── pivot-export.js   ← SheetJS exporter (Phase 4)
+│   │   │       ├── pivot-export.js   ← SheetJS exporter (Phase 4)
+│   │   │       ├── drilldown-selection.js ← selection-criteria builder (Phase 5)
+│   │   │       ├── drilldown-manager.js   ← modal orchestrator (Phase 5)
+│   │   │       └── drilldown-export.js    ← drill-down .xlsx exporter (Phase 5)
 │   │   ├── templates/
 │   │   │   ├── base.html
 │   │   │   ├── upload.html
@@ -164,12 +198,15 @@ pivot-app/
 
 | File | Role |
 | --- | --- |
-| `pivot.js`        | Controller — owns `appState`, left config panel, `buildPayload()`, validate / compute flow, stats panel, selection bar, search input, export orchestration, view toggles (hide config / fullscreen), defensive `try { main() } catch` init, lazy filter modal, theme listener. |
-| `pivot-grid.js`   | Pure AG Grid wrapper. Exposes `window.PivotGrid` with `render / clear / getSelectedRows / getSelectedCount / getSelectedGroups / getTotalRowCount / selectAll / clearSelection / setSearchTerm / getVisibleColumns / getVisibleRows / getLastResponse / getLastContext`. |
-| `pivot-export.js` | SheetJS export. Exposes `window.PivotExport.exportCurrentView()` and `setNotifier()`. Mirrors what the user sees in the grid. |
-| `manage.js`       | `/manage` page: dataset + sheet selection, column type table, AG Grid preview, delete flow, theme listener. |
-| `upload.js`       | Drag-and-drop + form submit for the upload page. |
-| `theme.js`        | `window.ThemeManager` — `setMode / getStoredMode / getCurrentTheme / syncToggleUI / applyTheme`; dispatches `theme:changed` CustomEvent. |
+| `pivot.js`              | Controller — owns `appState`, left config panel, `buildPayload()`, validate / compute flow, stats panel, selection bar, search input, export + drill-down orchestration, view toggles (hide config / fullscreen), defensive `try { main() } catch` init, lazy filter modal, theme listener. Exposes `window.PivotAppState()` for the drilldown manager. Dispatches `pivot:computed` after every successful compute. |
+| `pivot-grid.js`         | Pure AG Grid wrapper for the **pivot result**. Exposes `window.PivotGrid` with `render / clear / getSelectedRows / getSelectedCount / getSelectedGroups / getTotalRowCount / selectAll / clearSelection / setSearchTerm / getVisibleColumns / getVisibleRows / getLastResponse / getLastContext`. The `render()` context now supports an `onRowDoubleClick(row)` callback that fires when the user double-clicks a data row (Phase 5). |
+| `pivot-export.js`       | SheetJS export of the **pivot result**. Exposes `window.PivotExport.exportCurrentView()` and `setNotifier()`. Mirrors what the user sees in the grid. |
+| `drilldown-selection.js` | **Phase 5** — builds the `selection` map that goes into `POST /api/pivot/drilldown`. Exposes `window.DrilldownSelection` with `buildSelectionForRow`, `buildSelectionList`, `getSelectedPivotRows`, `getCurrentPivotResponse`, and `dedupKey` (stable JSON dedup key used by the merge loop). |
+| `drilldown-manager.js`   | **Phase 5** — modal orchestrator. Exposes `window.DrilldownManager` with `open / openForCurrentSelection / openForRow / close / hasData / getCurrentDataset / getCurrentContext / getVisibleColumns / getVisibleRows`. Owns the AG Grid instance, the toolbar (search + column visibility + reset + export), the summary card, the matching-criteria card, the loading overlay, the empty state, and the dedup + merge loop. Listens for `pivot:computed` to clear the cache and for `theme:changed` to re-skin the grid. |
+| `drilldown-export.js`    | **Phase 5** — SheetJS export of the **drill-down** view. Exposes `window.DrilldownExport.exportCurrentView()` and the pure helper `buildWorkbookFromView(columns, rows, options)` that returns a SheetJS workbook — the reusable form for the email phase (Phase 6) so attachments can be generated without a backend round-trip. |
+| `manage.js`             | `/manage` page: dataset + sheet selection, column type table, AG Grid preview, delete flow, theme listener. |
+| `upload.js`             | Drag-and-drop + form submit for the upload page. |
+| `theme.js`              | `window.ThemeManager` — `setMode / getStoredMode / getCurrentTheme / syncToggleUI / applyTheme`; dispatches `theme:changed` CustomEvent. |
 
 ## Startup
 
@@ -520,6 +557,51 @@ The same ratio holds for table headers, card bodies, and badge text.
    result should fill the entire viewport, the config stays hidden, and
    the two toggles remain independent.
 
+### Phase 5 — Drill-down
+
+1. Generate a pivot, then **double-click any data row** — the drill-down
+   modal opens with the matching raw records. The grand-total pinned row
+   is excluded from the trigger.
+2. Select one pivot row and click the **Drill-down** button in the
+   action toolbar — the modal opens for that single row.
+3. Select **multiple** pivot rows and click **Drill-down** — the modal
+   opens with a **single merged view**; identical records are shown
+   once. The summary card displays `Matched = sum(matched_rows)`
+   (additive) and `Returned` (post-dedup). For non-overlapping rows
+   they should be equal; for overlapping rows `Matched > Returned`.
+4. Open a drilldown, then **re-generate the pivot** — close and
+   re-open the modal. The dataset cache should be cleared (the
+   `pivot:computed` event handler) so the modal cannot show records
+   from the previous run.
+5. **Search** inside the drill-down grid — only matching rows stay
+   visible. The record counter updates to `"N of M records"`.
+6. **Sort** any column — rows reorder; the export will match.
+7. **Resize** columns — widths persist for the current session.
+8. **Hide** one or more columns via the **Columns** dropdown — the
+   grid reflows; **Reset** restores all columns; **All / None**
+   shortcuts work.
+9. Click **Export** — an `.xlsx` file downloads with the headers,
+   current sort + filter, and only the visible columns. Open it and
+   verify the row count matches the visible records in the grid.
+10. Drill into a row with **no matching records** — a friendly
+    empty state appears (`<icon> No matching records`) instead of an
+    empty grid.
+11. **Copy** selected cells in the drill-down grid (Ctrl+C) — the
+    selection is copied with headers. **Copy** a whole row by
+    clicking a cell in that row and pressing Ctrl+C.
+12. Verify the **matching-criteria card** at the top — pills like
+    `Region = North`, `Category = Payments` show the values that
+    produced the records. For multi-row drilldown, each selected
+    pivot row gets its own group of pills (`Row 1:`, `Row 2:`, …).
+13. Close and reopen the modal — the application remains stable
+    and selections are handled correctly.
+14. Review the code — drill-down, export and selection logic are
+    in three separate files (`drilldown-manager.js`,
+    `drilldown-export.js`, `drilldown-selection.js`) and the
+    spreadsheet export is a reusable pure function
+    (`buildWorkbookFromView`) that the upcoming email phase can
+    call without re-querying the backend.
+
 ## Pivot Architecture
 
 - `pivot_routes.py` exposes the Phase 3 APIs.
@@ -602,3 +684,58 @@ reload. The CSS lives in `backend/app/static/css/styles.css` (see
 - **View toggles**: hidable config panel and fullscreen result overlay
   live in `pivot.js` (`setConfigHidden`, `setFullscreen`) and CSS in
   `styles.css` (`.pivot-fullscreen`, `body.pivot-fullscreen-active`).
+- **Phase 5 frontend split** (under `backend/app/static/js/`):
+  - `drilldown-selection.js` (161 lines) builds the `selection` map
+    that goes into `POST /api/pivot/drilldown`. Exposes
+    `window.DrilldownSelection` with `buildSelectionForRow`,
+    `buildSelectionList`, `getSelectedPivotRows`,
+    `getCurrentPivotResponse`, and `dedupKey` — a stable JSON-string
+    dedup key (keys sorted alphabetically, each `k=v` JSON-encoded)
+    used by the merge loop to detect identical raw records.
+  - `drilldown-manager.js` (~800 lines) is the modal orchestrator. It
+    exposes `window.DrilldownManager` with
+    `open / openForCurrentSelection / openForRow / close / hasData /
+    getCurrentDataset / getCurrentContext / getVisibleColumns /
+    getVisibleRows`. It owns the AG Grid instance, the toolbar
+    (search + column visibility + reset + export), the summary
+    card (Dataset / Sheet / Selected Pivot Rows / Matching /
+    Returned), the matching-criteria card, the loading overlay with
+    progress text (`"3 / 5 groups · Region=North"`), the friendly
+    empty state, the dedup + merge loop, and a stable `inflightToken`
+    that discards stale responses if the user opens a new drilldown
+    while another is loading. It listens for `pivot:computed` (dispatched
+    by `pivot.js`) to clear the cached dataset and for `theme:changed`
+    to re-skin the grid wrapper.
+  - `drilldown-export.js` (~170 lines) is a thin SheetJS wrapper for
+    exporting the drill-down view. Exposes
+    `window.DrilldownExport.exportCurrentView()` and the pure helper
+    `buildWorkbookFromView(columns, rows, options)` that returns a
+    SheetJS workbook. The pure helper is the **reusable form for
+    Phase 6** — the email module can call it with the cached dataset
+    (no backend round-trip) and ship the returned workbook as the
+    email attachment.
+- **Multi-row drill-down dedup strategy**:
+  - Each fetched record is given a stable key by
+    `DrilldownSelection.dedupKey(record)`:
+    `Object.keys(record).sort().map(k => k+'='+JSON.stringify(record[k])).join('|')`.
+  - A `Set` tracks which keys have been seen; the first occurrence of
+    a key wins, subsequent occurrences are dropped.
+  - `metadata.matched_rows` is the **additive** total (the sum of
+    `matched_rows` across all drilldown calls — accurate, no dedup),
+    so the user can see how many raw records the API found before
+    dedup.
+  - `metadata.returned_rows` is the **deduped** count (what's actually
+    in the grid).
+- **Email-phase reuse plan**:
+  - `DrilldownManager.getCurrentDataset()` returns the merged
+    `PivotDrilldownResponse` (rows + columns + metadata) already in
+    memory.
+  - `DrilldownManager.getVisibleColumns()` / `getVisibleRows()` return
+    the user's current view (after column visibility + search + sort).
+  - `DrilldownExport.buildWorkbookFromView(visibleColumns, visibleRows,
+    {sheetName, filename})` returns a SheetJS workbook that can be
+    attached to an email via
+    `XLSX.write(wb, {type: 'array'})` → `new Blob([...], {type:
+    'application/octet-stream'})` → SMTP attachment. **Zero backend
+    round-trip** is needed for the attachment because the dataset is
+    already cached.

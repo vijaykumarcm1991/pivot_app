@@ -495,3 +495,162 @@ body.pivot-fullscreen-active {
   color: #fff;
   filter: brightness(0.95);
 }
+
+
+/* ==========================================================================
+   Phase 5 — Drill-down modal
+   --------------------------------------------------------------------------
+   The drill-down modal is a large Bootstrap modal that contains:
+     - sticky header (title + record counter)
+     - sticky toolbar (search + column visibility + export)
+     - summary card (Dataset / Sheet / Pivot Rows / Matching / Returned)
+     - matching-criteria card (the row-field values that produced the
+       drill-down)
+     - an AG Grid (independent from the pivot grid) with its own loading
+       overlay and empty state
+   ========================================================================== */
+
+/* ── Modal size — make it occupy most of the screen ───────────────────── */
+.drilldown-modal-dialog {
+  max-width: 95vw;
+  width: 95vw;
+  height: 90vh;
+  margin: 2vh auto;
+}
+.drilldown-modal-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+}
+.drilldown-modal-content .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Sticky header + toolbar — both stick to the top of the scrolling
+      modal body. The header sticks first, then the toolbar slides under it. */
+.drilldown-modal-content .modal-header.sticky-top {
+  position: sticky;
+  top: 0;
+  z-index: 1030;
+  background-color: var(--bs-body-bg);
+  border-bottom: 1px solid var(--bs-border-color-translucent);
+}
+.drilldown-toolbar.sticky-top {
+  position: sticky;
+  top: 0;
+  /* Sit just under the modal header (which is ~57px tall). The exact
+     offset is good enough because both the header and toolbar have a
+     solid background. */
+  z-index: 1025;
+  background-color: var(--bs-tertiary-bg);
+}
+
+/* ── Grid container — fills the remaining space, scrolls internally ── */
+.drilldown-grid-container {
+  flex: 1 1 auto;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+.drilldown-grid {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 320px;
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: var(--pivot-app-card-radius);
+  background-color: var(--bs-body-bg);
+}
+
+/* ── Loading overlay (re-uses the pivot overlay look) ───────────────── */
+#drilldownLoadingOverlay {
+  background-color: rgba(255, 255, 255, 0.7);
+  z-index: 5;
+  border-radius: var(--pivot-app-card-radius);
+}
+[data-bs-theme="dark"] #drilldownLoadingOverlay {
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+/* ── Summary + criteria cards — match the rest of the pivot UI ──────── */
+.drilldown-summary-card,
+.drilldown-criteria-card {
+  border: 1px solid var(--bs-border-color-translucent);
+}
+
+/* ── Criteria pills — visual highlight of "field = value" ──────────── */
+.drilldown-criteria-pill {
+  display: inline-flex;
+  align-items: center;
+  background-color: var(--bs-tertiary-bg);
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.78rem;
+  margin: 0.1rem 0.2rem 0.1rem 0;
+  font-weight: 500;
+  gap: 0.25rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drilldown-criteria-pill .key {
+  color: var(--bs-secondary-color);
+  font-weight: 600;
+}
+.drilldown-criteria-pill .op {
+  color: var(--bs-secondary-color);
+  opacity: 0.6;
+}
+.drilldown-criteria-pill .val {
+  color: var(--bs-body-color);
+  font-weight: 600;
+}
+
+/* ── Empty state — same look as the main empty state card ──────────── */
+.drilldown-empty-state .bi {
+  display: block;
+}
+[data-bs-theme="dark"] .drilldown-empty-state .bi {
+  opacity: 0.4;
+}
+
+/* ── Column-visibility menu — keep the checkbox + label on one line ── */
+#drilldownColumnsMenu .dropdown-item {
+  padding: 0.25rem 0.75rem;
+  white-space: nowrap;
+}
+#drilldownColumnsMenu .dropdown-item .form-check-input {
+  flex-shrink: 0;
+}
+
+/* ── Toolbar polish — group the search box + buttons in a single row ─ */
+.drilldown-toolbar .form-control {
+  background-color: var(--bs-body-bg);
+}
+
+/* ── Record counter badge — bigger and more visible than a regular badge */
+#drilldownRecordCount {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ── Responsive: shrink the toolbar columns on narrow screens ──────── */
+@media (max-width: 768px) {
+  .drilldown-modal-dialog {
+    max-width: 100vw;
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+  }
+  .drilldown-toolbar .input-group {
+    flex: 1 1 100%;
+    max-width: 100% !important;
+  }
+}

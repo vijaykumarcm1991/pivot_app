@@ -120,6 +120,7 @@
   const computeBtn        = document.getElementById("computeBtn");
   const validateBtn       = document.getElementById("validateBtn");
   const exportBtn         = document.getElementById("exportBtn");
+  const drilldownBtn      = document.getElementById("drilldownBtn");
   const toggleConfigBtn   = document.getElementById("toggleConfigBtn");
   const fullscreenBtn     = document.getElementById("fullscreenBtn");
   const configPanel       = document.getElementById("configPanel");
@@ -671,6 +672,14 @@
     };
   }
 
+  // Expose the current pivot payload to other modules (Phase 5 drilldown
+  // manager). The function is preferred so we always read the latest
+  // appState at call time, but a plain value is also accepted.
+  window.PivotAppState = () => {
+    if (!appState.datasetId || !appState.sheetName) return null;
+    return buildPayload();
+  };
+
   // ════════════════════════════════════════════════════════════════════════
   // VALIDATE  (Phase 3)
   // ════════════════════════════════════════════════════════════════════════
@@ -753,9 +762,24 @@
       const context = {
         datasetName: appState.datasetName,
         sheetName:   appState.sheetName,
+        // Phase 5: open the drill-down modal when the user double-clicks
+        // a pivot row. The grand-total row is filtered out inside
+        // pivot-grid.js (see onRowDoubleClicked).
+        onRowDoubleClick: (row) => {
+          if (window.DrilldownManager) {
+            window.DrilldownManager.openForRow(row);
+          }
+        },
       };
 
       renderResult(data, context);
+
+      // Phase 5: let listeners know a fresh pivot is available. The
+      // drill-down manager uses this to clear its cached dataset so a
+      // subsequent drill-down can't show records from the previous run.
+      document.dispatchEvent(new CustomEvent("pivot:computed", {
+        detail: { response: data, context: context },
+      }));
     } catch (err) {
       showError("Pivot computation failed: " + err.message);
       clearResults();
@@ -834,8 +858,9 @@
     pivotCard.style.display = "";
     debugCard.style.display = "";
 
-    // 7. Enable Export (Phase 4 §12)
-    if (exportBtn) exportBtn.disabled = false;
+    // 7. Enable Export (Phase 4 §12) + Drill-down (Phase 5)
+    if (exportBtn)    exportBtn.disabled    = false;
+    if (drilldownBtn) drilldownBtn.disabled = false;
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -946,6 +971,34 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════
+  // DRILL-DOWN  (Phase 5)
+  // ════════════════════════════════════════════════════════════════════════
+  // Open the drill-down modal for:
+  //   - the currently selected pivot rows (multi-row drilldown), or
+  //   - the row the user just double-clicked (handled by PivotGrid's
+  //     onRowDoubleClicked → DrilldownManager.openForRow).
+  // The button is enabled once a pivot result has been rendered.
+  if (drilldownBtn) {
+    drilldownBtn.addEventListener("click", () => {
+      if (!window.DrilldownManager) {
+        showError("Drill-down module not loaded.");
+        return;
+      }
+      if (!appState.lastResponse) {
+        showError("Generate a pivot first.");
+        return;
+      }
+      window.DrilldownManager.openForCurrentSelection();
+    });
+  }
+
+  // Wire DrilldownExport's notifier to our error alert so export
+  // problems surface in the same alert as compute errors.
+  if (window.DrilldownExport) {
+    window.DrilldownExport.setNotifier(showError);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
   // EMPTY STATES / CLEAR  (Phase 4 §14)
   // ════════════════════════════════════════════════════════════════════════
   function hideAllResults() {
@@ -954,6 +1007,7 @@
     if (selectionCard) selectionCard.style.display = "none";
     if (warningBanner) warningBanner.style.display = "none";
     if (exportBtn)     exportBtn.disabled = true;
+    if (drilldownBtn)  drilldownBtn.disabled = true;
     if (metaStats)     metaStats.innerHTML = "";
     if (window.PivotGrid) window.PivotGrid.clear();
   }
