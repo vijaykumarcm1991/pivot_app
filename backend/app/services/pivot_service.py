@@ -176,6 +176,110 @@ def build_drilldown(
     )
 
 
+def build_drilldown_multi(
+    db: Session,
+    dataset_id: int,
+    sheet_name: str,
+    rows: List[str],
+    columns: List[str],
+    values: List[Any],
+    filters: Dict[str, Any],
+    date_grouping: Dict[str, str],
+    sorting: Dict[str, str],
+    totals: Any,
+    layout: str,
+    selections: List[Dict[str, Any]],
+    limit: int = 5000,
+) -> Dict[str, Any]:
+    """
+    Phase 6 — multi-selection drilldown.
+
+    Run the existing single-selection drilldown once per selection,
+    merge the resulting rows, and deduplicate by a stable JSON key
+    so the same raw record is never included twice. Returns the
+    same shape as `build_drilldown()` so the email attachment
+    service can use it as a drop-in replacement.
+
+    The contract of the per-selection call is unchanged — the
+    request body sent to the existing `/api/pivot/drilldown`
+    endpoint is built here from the same payload fields, plus
+    `selection` and `limit`.
+    """
+    if not selections:
+        return {
+            "rows": [],
+            "columns": [],
+            "metadata": {
+                "dataset_id": dataset_id,
+                "sheet_name": sheet_name,
+                "matched_rows": 0,
+                "returned_rows": 0,
+                "limit": int(max(1, min(limit, 5000))),
+                "selections": [],
+            },
+        }
+
+    seen: set = set()
+    merged_rows: List[Dict[str, Any]] = []
+    merged_columns: List[str] = []
+    total_matched = 0
+    cap = max(1, min(limit, 5000))
+
+    for selection in selections:
+        req = PivotDrilldownRequest(
+            dataset_id=dataset_id,
+            sheet_name=sheet_name,
+            rows=rows,
+            columns=columns,
+            values=values,
+            filters=filters,
+            date_grouping=date_grouping,
+            sorting=sorting,
+            totals=totals,
+            layout=layout,
+            selection=selection,
+            limit=cap,
+        )
+        single = build_drilldown(db, req)
+        total_matched += int(single.metadata.get("matched_rows") or 0)
+
+        if not merged_columns and single.columns:
+            merged_columns = list(single.columns)
+
+        for row in single.rows:
+            key = _dedup_key(row)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged_rows.append(row)
+
+    return {
+        "rows": merged_rows,
+        "columns": merged_columns,
+        "metadata": {
+            "dataset_id": dataset_id,
+            "sheet_name": sheet_name,
+            "matched_rows": total_matched,
+            "returned_rows": len(merged_rows),
+            "limit": cap,
+            "selections": list(selections),
+        },
+    }
+
+
+def _dedup_key(record: Dict[str, Any]) -> str:
+    """Stable JSON-string dedup key — matches the frontend's
+    `DrilldownSelection.dedupKey()` so both sides agree on what
+    counts as a duplicate."""
+    if not isinstance(record, dict):
+        return ""
+    return "|".join(
+        f"{k}={_json_safe(v)!r}"
+        for k in sorted(record.keys())
+        for v in [record.get(k)]
+    )
+
+
 def _load_dataset_sheet(db: Session, dataset_id: int, sheet_name: str) -> pd.DataFrame:
     dataset = get_dataset_by_id(db, dataset_id)
     if not dataset:

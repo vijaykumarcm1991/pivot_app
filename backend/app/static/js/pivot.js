@@ -121,6 +121,7 @@
   const validateBtn       = document.getElementById("validateBtn");
   const exportBtn         = document.getElementById("exportBtn");
   const drilldownBtn      = document.getElementById("drilldownBtn");
+  const emailBtn          = document.getElementById("emailBtn");
   const toggleConfigBtn   = document.getElementById("toggleConfigBtn");
   const fullscreenBtn     = document.getElementById("fullscreenBtn");
   const configPanel       = document.getElementById("configPanel");
@@ -770,6 +771,12 @@
             window.DrilldownManager.openForRow(row);
           }
         },
+        // Phase 6: enable the Send Email button only when at least
+        // one row is selected. The button starts disabled in the
+        // markup; this callback turns it on when the user picks rows.
+        onSelectionChange: (count) => {
+          if (emailBtn) emailBtn.disabled = !(count > 0);
+        },
       };
 
       renderResult(data, context);
@@ -858,9 +865,10 @@
     pivotCard.style.display = "";
     debugCard.style.display = "";
 
-    // 7. Enable Export (Phase 4 §12) + Drill-down (Phase 5)
+    // 7. Enable Export (Phase 4 §12) + Drill-down (Phase 5) + Email (Phase 6)
     if (exportBtn)    exportBtn.disabled    = false;
     if (drilldownBtn) drilldownBtn.disabled = false;
+    if (emailBtn)     emailBtn.disabled     = false;
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -999,6 +1007,27 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════
+  // SEND EMAIL  (Phase 6)
+  // ════════════════════════════════════════════════════════════════════════
+  // Open the email composer. The button is enabled only after a
+  // pivot is rendered (via `renderResult`) — the composer itself
+  // requires at least one selected pivot row, which EmailManager
+  // enforces before opening the modal.
+  if (emailBtn) {
+    emailBtn.addEventListener("click", () => {
+      if (!window.EmailManager) {
+        showError("Email module not loaded.");
+        return;
+      }
+      if (!appState.lastResponse) {
+        showError("Generate a pivot first.");
+        return;
+      }
+      window.EmailManager.open();
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
   // EMPTY STATES / CLEAR  (Phase 4 §14)
   // ════════════════════════════════════════════════════════════════════════
   function hideAllResults() {
@@ -1008,6 +1037,7 @@
     if (warningBanner) warningBanner.style.display = "none";
     if (exportBtn)     exportBtn.disabled = true;
     if (drilldownBtn)  drilldownBtn.disabled = true;
+    if (emailBtn)      emailBtn.disabled = true;
     if (metaStats)     metaStats.innerHTML = "";
     if (window.PivotGrid) window.PivotGrid.clear();
   }

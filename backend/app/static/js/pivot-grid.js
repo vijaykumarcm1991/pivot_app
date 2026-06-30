@@ -25,6 +25,10 @@
  *     data row (excludes the grand-total pinned row). Used by Phase 5 to
  *     open the drill-down modal. The callback is wired on the first
  *     render and persists across `setGridOption` updates.
+ *   - onSelectionChange(count, rows): invoked whenever the user changes
+ *     the current selection (count = selected count, rows = selected
+ *     row objects). Used by Phase 6 to enable/disable the Send Email
+ *     button.
  *
  * Design notes
  * ------------
@@ -110,7 +114,17 @@
       columnDefs,
       rowData: lastDataRows,
       pinnedBottomRowData: pinnedBottom ? [pinnedBottom] : [],
-      onSelectionChanged: () => window.PivotGrid && updateSelectionSummary(),
+      onSelectionChanged: () => {
+        if (window.PivotGrid) updateSelectionSummary();
+        // Phase 6: notify the page so it can enable/disable the
+        // Send Email button.
+        if (typeof context.onSelectionChange === "function") {
+          try {
+            const rows   = window.PivotGrid.getSelectedRows();
+            context.onSelectionChange(Array.isArray(rows) ? rows.length : 0, rows);
+          } catch (_) { /* ignore — context callback is best-effort */ }
+        }
+      },
       onFilterChanged:    () => window.PivotGrid && updateSelectionSummary(),
       onSortChanged:      () => window.PivotGrid && updateSelectionSummary(),
       onRowDoubleClicked: (event) => {

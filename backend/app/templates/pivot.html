@@ -19,10 +19,10 @@
             title="Load a saved pivot configuration (planned for Phase 5)">
       <i class="bi bi-folder2-open me-1"></i>Load
     </button>
-    <button type="button" class="btn btn-outline-secondary btn-reserved" disabled
-            title="Send pivot result to stakeholders (planned for Phase 5)">
-      <i class="bi bi-envelope me-1"></i>Email
-    </button>
+    <a href="/email/settings" class="btn btn-outline-secondary"
+       title="Configure the SMTP server used to send emails">
+      <i class="bi bi-envelope-gear me-1"></i>Email Settings
+    </a>
   </div>
 </div>
 
@@ -299,6 +299,10 @@
                 title="Drill down into the underlying records of the selected pivot row(s)">
           <i class="bi bi-search me-1"></i>Drill-down
         </button>
+        <button id="emailBtn" class="btn btn-outline-info btn-sm" disabled
+                title="Send the selected pivot row(s) + drill-down attachment by email">
+          <i class="bi bi-envelope me-1"></i>Send Email
+        </button>
         <span id="loadingSpinner"
               class="spinner-border spinner-border-sm text-primary d-none ms-2"
               role="status"
@@ -441,6 +445,194 @@
 </div>
 
 {# ────────────────────────────────────────────────────────────────────────
+   EMAIL COMPOSER MODAL — Phase 6
+   Opened by the "Send Email" button on the pivot page. Collects
+   To/CC/BCC/Subject/Message, lets the user Preview the HTML body
+   + download the attachment, then Send via SMTP. Reuses the
+   drilldown modules to build the per-row selections and to
+   validate that at least one row is selected.
+   ──────────────────────────────────────────────────────────────────────── #}
+<div class="modal fade" id="emailModal" tabindex="-1" aria-labelledby="emailModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered email-composer-dialog">
+    <div class="modal-content email-composer-content">
+
+      {# Header #}
+      <div class="modal-header sticky-top">
+        <h5 class="modal-title d-flex align-items-center" id="emailModalLabel">
+          <i class="bi bi-envelope me-2 text-info"></i>
+          <span>Send Email</span>
+        </h5>
+        <div class="ms-3 d-flex flex-wrap align-items-center gap-1">
+          <span class="badge bg-info-subtle text-info-emphasis">
+            <i class="bi bi-table me-1"></i>
+            <span id="emailDatasetBadge">—</span>
+          </span>
+          <span class="badge bg-info-subtle text-info-emphasis">
+            <i class="bi bi-file-earmark-spreadsheet me-1"></i>
+            <span id="emailSheetBadge">—</span>
+          </span>
+        </div>
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="modal-body p-0">
+        <div class="row g-0">
+
+          {# ── Left column: form + preview + attachment ──────────── #}
+          <div class="col-lg-7 email-composer-left">
+
+            <div class="p-3">
+              <div id="emailAlertArea"></div>
+
+              <div class="row g-2 mb-3 small text-muted">
+                <div class="col-sm-6">
+                  <i class="bi bi-check2-square me-1 text-primary"></i>
+                  <span id="emailPivotRowsCount">0</span> pivot row(s) selected
+                </div>
+                <div class="col-sm-6 text-sm-end">
+                  <i class="bi bi-list-ul me-1 text-success"></i>
+                  <span id="emailRecordsCount">—</span> attachment record(s)
+                </div>
+              </div>
+
+              <div class="row g-2 mb-2">
+                <div class="col-md-12">
+                  <label class="form-label small fw-bold mb-1" for="emailTo">To</label>
+                  <div class="input-group input-group-sm">
+                    <input id="emailTo" type="text" class="form-control"
+                           placeholder="alice@example.com, bob@example.com">
+                    <button class="btn btn-outline-secondary dropdown-toggle"
+                            type="button" data-bs-toggle="dropdown"
+                            aria-expanded="false" title="Recent recipients">
+                      <i class="bi bi-clock-history"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" id="emailToSuggestions">
+                      <li><span class="dropdown-item text-muted small">No suggestions yet</span></li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-bold mb-1" for="emailCc">CC</label>
+                  <div class="input-group input-group-sm">
+                    <input id="emailCc" type="text" class="form-control"
+                           placeholder="carol@example.com">
+                    <button class="btn btn-outline-secondary dropdown-toggle"
+                            type="button" data-bs-toggle="dropdown"
+                            aria-expanded="false" title="Recent recipients">
+                      <i class="bi bi-clock-history"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" id="emailCcSuggestions">
+                      <li><span class="dropdown-item text-muted small">No suggestions yet</span></li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-bold mb-1" for="emailBcc">BCC</label>
+                  <div class="input-group input-group-sm">
+                    <input id="emailBcc" type="text" class="form-control"
+                           placeholder="(optional)">
+                    <button class="btn btn-outline-secondary dropdown-toggle"
+                            type="button" data-bs-toggle="dropdown"
+                            aria-expanded="false" title="Recent recipients">
+                      <i class="bi bi-clock-history"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" id="emailBccSuggestions">
+                      <li><span class="dropdown-item text-muted small">No suggestions yet</span></li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label small fw-bold mb-1" for="emailSubject">Subject</label>
+                  <input id="emailSubject" type="text" class="form-control form-control-sm"
+                         placeholder="Pivot report — …" required>
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label small fw-bold mb-1" for="emailMessage">Message</label>
+                  <textarea id="emailMessage" class="form-control form-control-sm"
+                            rows="5"
+                            placeholder="Hello team,&#10;&#10;Please find the report below.&#10;&#10;Regards,"></textarea>
+                </div>
+              </div>
+
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <button id="emailPreviewBtn" class="btn btn-outline-primary btn-sm" type="button">
+                  <i class="bi bi-eye me-1"></i>Preview
+                </button>
+                <button id="emailSendBtn" class="btn btn-primary btn-sm" type="button" disabled>
+                  <i class="bi bi-send me-1"></i>Send
+                </button>
+                <button id="emailResetBtn" class="btn btn-outline-secondary btn-sm" type="button">
+                  <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                </button>
+                <a href="/email/history" class="ms-auto small text-muted">
+                  <i class="bi bi-clock-history me-1"></i>Email History
+                </a>
+              </div>
+            </div>
+
+            {# Preview / attachment panel #}
+            <div class="border-top p-3">
+              <h6 class="fw-semibold mb-2">
+                <i class="bi bi-paperclip me-1 text-success"></i>Drill-down attachment
+              </h6>
+              <div id="ddPreviewAttachment" class="alert alert-success py-2 mb-3" style="display:none">
+                <i class="bi bi-file-earmark-excel me-1"></i>
+                <a id="ddPreviewAttachmentLink" href="#" download>—</a>
+                <span class="small text-muted ms-2">(Excel)</span>
+              </div>
+
+              <h6 class="fw-semibold mb-2">
+                <i class="bi bi-eye me-1 text-info"></i>HTML preview
+              </h6>
+              <div id="ddPreviewInitial" class="text-muted small border rounded p-3 bg-body-tertiary">
+                Click <strong>Preview</strong> to render the email body.
+              </div>
+              <div id="ddPreviewBusy" class="text-muted small border rounded p-3 bg-body-tertiary text-center" style="display:none">
+                <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                  <span class="visually-hidden">Loading…</span>
+                </div>
+                <span data-busy-label>Building preview…</span>
+              </div>
+              <div id="ddPreviewBody" class="email-preview-body" style="display:none"></div>
+            </div>
+          </div>
+
+          {# ── Right column: instructions + tips ──────────────────── #}
+          <div class="col-lg-5 border-start email-composer-right p-3">
+            <h6 class="fw-semibold mb-2">
+              <i class="bi bi-list-check me-1 text-primary"></i>How it works
+            </h6>
+            <ol class="small text-muted ps-3">
+              <li>Select one or more pivot rows on the grid.</li>
+              <li>Enter recipients (multiple addresses can be separated by commas or semicolons).</li>
+              <li>Click <strong>Preview</strong> to render the HTML body + verify the attachment.</li>
+              <li>Click <strong>Send</strong> to dispatch the email.</li>
+            </ol>
+
+            <h6 class="fw-semibold mt-3 mb-2">
+              <i class="bi bi-shield-check me-1 text-success"></i>What's attached
+            </h6>
+            <p class="small text-muted">
+              The attached <code>.xlsx</code> file contains the raw records
+              matching every selected pivot row. Identical raw records are
+              automatically removed so the same data is never included twice.
+            </p>
+
+            <h6 class="fw-semibold mt-3 mb-2">
+              <i class="bi bi-gear me-1 text-secondary"></i>Configuration
+            </h6>
+            <p class="small text-muted mb-2">
+              SMTP settings are configured separately on the
+              <a href="/email/settings">Email Settings</a> page.
+            </p>
+          </div>
+        </div>
+      </div>{# /modal-body #}
+    </div>{# /modal-content #}
+  </div>{# /modal-dialog #}
+</div>{# /emailModal #}
+
+{# ────────────────────────────────────────────────────────────────────────
    DRILL-DOWN MODAL — Phase 5
    Opened by the "Drill-down" button or by double-clicking a pivot row.
    Renders the raw records returned by POST /api/pivot/drilldown in a
@@ -578,12 +770,15 @@
 
 {% block scripts %}
 {# Load order matters: pivot grid wrapper, pivot export, then the controller,
-   then the drill-down modules. The drill-down modules rely on
-   window.PivotGrid + window.PivotExport being available. #}
+   then the drill-down modules, then the email modules. The drill-down /
+   email modules rely on window.PivotGrid + window.PivotExport + the pivot
+   controller's appState being available. #}
 <script src="/static/js/pivot-grid.js"></script>
 <script src="/static/js/pivot-export.js"></script>
 <script src="/static/js/pivot.js"></script>
 <script src="/static/js/drilldown-selection.js"></script>
 <script src="/static/js/drilldown-export.js"></script>
 <script src="/static/js/drilldown-manager.js"></script>
+<script src="/static/js/preview-manager.js"></script>
+<script src="/static/js/email-manager.js"></script>
 {% endblock %}

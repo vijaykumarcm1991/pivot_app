@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Email History — Pivot App{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold mb-0">
+    <i class="bi bi-clock-history me-2 text-secondary"></i>Email History
+  </h2>
+  <div class="btn-group btn-group-sm" role="group">
+    <a href="/email/settings" class="btn btn-outline-secondary">
+      <i class="bi bi-gear me-1"></i>Settings
+    </a>
+    <a href="/pivot" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back to Pivot
+    </a>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-center">
+      <div class="col-md-4">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input id="historySearch" type="text" class="form-control"
+                 placeholder="Search subject, recipient, dataset…">
+        </div>
+      </div>
+      <div class="col-md-3">
+        <select id="historyStatusFilter" class="form-select form-select-sm">
+          <option value="">All statuses</option>
+          <option value="success">Success only</option>
+          <option value="failed">Failed only</option>
+        </select>
+      </div>
+      <div class="col-md-5 small text-muted text-md-end">
+        <span id="historyCount">0 emails</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div id="historyLoading" class="text-center py-5">
+      <div class="spinner-border text-primary mb-2" role="status">
+        <span class="visually-hidden">Loading…</span>
+      </div>
+      <div class="text-muted small">Loading email history…</div>
+    </div>
+    <div id="historyEmpty" class="text-center py-5" style="display:none">
+      <i class="bi bi-inbox display-3 text-muted opacity-50"></i>
+      <h5 class="mt-3 mb-1">No emails sent yet</h5>
+      <p class="text-muted mb-0">
+        Send a pivot report from the
+        <a href="/pivot">Pivot Builder</a>
+        to see entries here.
+      </p>
+    </div>
+    <div class="table-responsive" id="historyTableWrap" style="display:none">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th scope="col" style="width: 160px;">Date &amp; Time</th>
+            <th scope="col">Subject</th>
+            <th scope="col" style="width: 220px;">Recipients</th>
+            <th scope="col" style="width: 180px;">Dataset / Sheet</th>
+            <th scope="col" class="text-end" style="width: 100px;">Pivot Rows</th>
+            <th scope="col" class="text-end" style="width: 100px;">Records</th>
+            <th scope="col" style="width: 100px;">Status</th>
+            <th scope="col" style="width: 100px;">Attachment</th>
+          </tr>
+        </thead>
+        <tbody id="historyTbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# Error modal — shown when an attachment download fails #}
+<div class="modal fade" id="historyErrorModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-exclamation-triangle me-2 text-warning"></i>Cannot open entry
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="historyErrorBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/email-history.js"></script>
+{% endblock %}

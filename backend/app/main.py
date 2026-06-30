@@ -10,6 +10,7 @@ from app.config.database import init_db
 from app.routes.upload_routes import router as upload_router
 from app.routes.dataset_routes import router as dataset_router
 from app.routes.pivot_routes import router as pivot_router
+from app.routes.email_routes import router as email_router
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -36,6 +37,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(upload_router)
 app.include_router(dataset_router)
 app.include_router(pivot_router)
+app.include_router(email_router)
 
 
 # ---------------------------------------------------------------------------
@@ -45,4 +47,10 @@ app.include_router(pivot_router)
 @app.on_event("startup")
 def on_startup():
     """Initialise the database on first run."""
+    # Import models so SQLAlchemy sees them before create_all —
+    # this includes the Phase 6 email models.
+    from app.models import (  # noqa: F401
+        dataset, sheet, column,
+        smtp_settings, email_history, recent_recipient,
+    )
     init_db()
