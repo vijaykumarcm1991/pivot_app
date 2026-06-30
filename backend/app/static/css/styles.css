@@ -2,9 +2,9 @@
    Pivot App — Custom Styles
    --------------------------------------------------------------------------
    Bootstrap 5.3's `data-bs-theme` attribute drives most of the colour
-   tokens (--bs-body-bg, --bs-body-color, --bs-border-color, etc.). The few
-   hand-rolled styles below use those tokens so they automatically follow
-   the active theme.
+   tokens (--bs-body-bg, --bs-body-color, --bs-border-color, etc.). The
+   custom styles below use those tokens so they automatically follow the
+   active theme.
    ========================================================================== */
 
 :root {
@@ -15,6 +15,27 @@
 body {
   background-color: var(--bs-body-bg);
   color: var(--bs-body-color);
+  min-height: 100vh;
+}
+
+/* ── Cards — give them a faint border in dark mode so they're visible ──── */
+.card {
+  background-color: var(--bs-card-bg, var(--bs-body-bg));
+  border-color: var(--bs-border-color-translucent);
+}
+.card.border-0 {
+  /* When a card explicitly has no border, we still want a subtle outline
+     in dark mode so it doesn't blend into the page background. */
+}
+[data-bs-theme="dark"] .card.border-0 {
+  border: 1px solid var(--bs-border-color-translucent) !important;
+}
+
+/* ── Card header — match theme ─────────────────────────────────────────── */
+.card-header {
+  background-color: var(--bs-tertiary-bg);
+  color: var(--bs-body-color);
+  border-bottom-color: var(--bs-border-color-translucent);
 }
 
 /* ── Drop-zone (upload page) ────────────────────────────────────────────── */
@@ -23,12 +44,45 @@ body {
   transition: background-color 0.2s ease, border-color 0.2s ease;
   border-style: dashed !important;
   background-color: var(--bs-tertiary-bg);
+  color: var(--bs-body-color);
 }
-
 .drop-zone:hover,
 .drop-zone.dragover {
   background-color: color-mix(in srgb, var(--bs-primary) 12%, var(--bs-tertiary-bg));
   border-color: var(--bs-primary) !important;
+}
+
+/* ── Tables — theme-aware thead and tbody ──────────────────────────────── */
+.table {
+  --bs-table-color: var(--bs-body-color);
+  --bs-table-bg: transparent;
+  --bs-table-border-color: var(--bs-border-color-translucent);
+  color: var(--bs-body-color);
+}
+.table > :not(caption) > * > * {
+  background-color: transparent;
+  color: var(--bs-body-color);
+}
+.table-hover > tbody > tr:hover > * {
+  background-color: rgba(13, 110, 253, 0.06);
+  color: var(--bs-body-color);
+}
+[data-bs-theme="dark"] .table-hover > tbody > tr:hover > * {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--bs-body-color);
+}
+
+/* The default `.table-light` from Bootstrap keeps a light background even
+   in dark mode. Override so thead rows use the theme-aware tertiary bg. */
+.table > thead {
+  background-color: var(--bs-tertiary-bg);
+}
+.table > thead > tr > th,
+.table-light > th {
+  background-color: var(--bs-tertiary-bg) !important;
+  color: var(--bs-body-color) !important;
+  border-bottom-color: var(--bs-border-color-translucent) !important;
+  font-weight: 600;
 }
 
 /* ── Scrollable preview tables ─────────────────────────────────────────── */
@@ -36,84 +90,71 @@ body {
   max-height: 480px;
   overflow-y: auto;
 }
-
 .table-responsive thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
-  background-color: var(--bs-tertiary-bg);
-}
-
-/* ── Navbar active link ────────────────────────────────────────────────── */
-.navbar-nav .nav-link.active {
-  font-weight: 600;
-}
-
-/* ── Display-6 sizing (stat card numbers) ──────────────────────────────── */
-.display-6 {
-  font-size: 2rem;
-}
-
-/* ── Code / JSON debug blocks (pivot page) ─────────────────────────────── */
-pre.bg-light {
+  z-index: 2;
   background-color: var(--bs-tertiary-bg) !important;
+}
+
+/* ── Form controls — ensure proper contrast in dark mode ───────────────── */
+.form-control,
+.form-select,
+.input-group-text {
+  background-color: var(--bs-body-bg);
   color: var(--bs-body-color);
+  border-color: var(--bs-border-color);
+}
+.form-control:focus,
+.form-select:focus {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+}
+.form-control::placeholder { color: var(--bs-secondary-color); }
+.form-control:disabled,
+.form-select:disabled { background-color: var(--bs-tertiary-bg); }
+
+/* Multiple select: keep a consistent background */
+select[multiple].form-select {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+}
+select[multiple].form-select option {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+}
+
+/* ── Badges — bg-light/bg-body-tertiary need text-body ─────────────────── */
+.badge.bg-body-tertiary {
+  background-color: var(--bs-tertiary-bg) !important;
+  color: var(--bs-body-color) !important;
   border: 1px solid var(--bs-border-color-translucent);
 }
 
-/* ── Card / stat-card refinements in dark mode ─────────────────────────── */
-[data-bs-theme="dark"] .card {
-  background-color: var(--bs-tertiary-bg);
-  border-color: var(--bs-border-color-translucent);
-}
+/* ── Text muted — readable in both modes ──────────────────────────────── */
+.text-muted { color: var(--bs-secondary-color) !important; }
 
-[data-bs-theme="dark"] .card-header.bg-white,
-[data-bs-theme="dark"] .card-header {
-  background-color: var(--bs-tertiary-bg) !important;
-  color: var(--bs-body-color);
-  border-bottom-color: var(--bs-border-color-translucent);
-}
-
-[data-bs-theme="dark"] .table > :not(caption) > * > * {
-  background-color: transparent;
-  color: var(--bs-body-color);
-}
-
-[data-bs-theme="dark"] .table-hover > tbody > tr:hover > * {
-  background-color: rgba(255, 255, 255, 0.04);
-  color: var(--bs-body-color);
-}
-
-[data-bs-theme="dark"] .table-light,
-[data-bs-theme="dark"] .table > thead.table-light {
-  --bs-table-bg: var(--bs-tertiary-bg);
-  --bs-table-color: var(--bs-body-color);
-  background-color: var(--bs-table-bg) !important;
-  color: var(--bs-table-color);
-}
-
-/* ── Ensure text-muted reads in dark mode ──────────────────────────────── */
-[data-bs-theme="dark"] .text-muted {
-  color: #9aa3ad !important;
-}
-
-/* ── Modal polish for dark mode ────────────────────────────────────────── */
-[data-bs-theme="dark"] .modal-content {
+/* ── Code / JSON debug blocks (pivot page) ─────────────────────────────── */
+pre {
   background-color: var(--bs-tertiary-bg);
   color: var(--bs-body-color);
-  border-color: var(--bs-border-color-translucent);
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  margin-bottom: 0;
 }
 
-[data-bs-theme="dark"] .modal-header,
-[data-bs-theme="dark"] .modal-footer {
-  border-color: var(--bs-border-color-translucent);
-}
+/* ── Navbar — keep dark in both modes; it reads as a solid anchor ──────── */
+.navbar.bg-dark { background-color: #212529 !important; }
+[data-bs-theme="dark"] .navbar.bg-dark { background-color: #0d1117 !important; }
 
-[data-bs-theme="dark"] .list-group-item {
-  background-color: var(--bs-tertiary-bg);
-  color: var(--bs-body-color);
-  border-color: var(--bs-border-color-translucent);
-}
+/* ── Navbar active link ────────────────────────────────────────────────── */
+.navbar-nav .nav-link.active { font-weight: 600; }
+[data-bs-theme="dark"] .navbar-nav .nav-link { color: rgba(255, 255, 255, 0.85); }
+[data-bs-theme="dark"] .navbar-nav .nav-link:hover { color: #fff; }
 
 /* ── Theme toggle dropdown item — highlight active mode ────────────────── */
 [data-theme-mode].active,
@@ -122,48 +163,33 @@ pre.bg-light {
   color: var(--bs-emphasis-color);
   font-weight: 600;
 }
-
 [data-bs-theme="dark"] [data-theme-mode].active {
-  background-color: rgba(13, 110, 253, 0.25);
+  background-color: rgba(13, 110, 253, 0.3);
   color: #fff;
 }
 
-/* ── Form controls in dark mode ────────────────────────────────────────── */
-[data-bs-theme="dark"] .form-control,
-[data-bs-theme="dark"] .form-select {
+/* ── Modal polish for dark mode ────────────────────────────────────────── */
+.modal-content {
   background-color: var(--bs-body-bg);
   color: var(--bs-body-color);
-  border-color: var(--bs-border-color);
-}
-
-[data-bs-theme="dark"] .form-control:focus,
-[data-bs-theme="dark"] .form-select:focus {
-  background-color: var(--bs-body-bg);
-  color: var(--bs-body-color);
-}
-
-/* ── Sticky table headers in dark mode (the dark CSS from Bootstrap may
-       not apply to thead-light automatically) ──────────────────────────── */
-[data-bs-theme="dark"] thead.table-dark th,
-[data-bs-theme="dark"] .table-dark {
-  background-color: #1f2937;
-  color: #f8f9fa;
   border-color: var(--bs-border-color-translucent);
 }
+.modal-header,
+.modal-footer { border-color: var(--bs-border-color-translucent); }
+.modal-backdrop { background-color: #000; }
+.modal-backdrop.show { opacity: 0.6; }
 
-/* ── Border / "rounded-pill bg-light text-dark" badges (preview.html) ── */
-[data-bs-theme="dark"] .bg-light {
-  background-color: var(--bs-tertiary-bg) !important;
-  color: var(--bs-body-color) !important;
-  border-color: var(--bs-border-color-translucent) !important;
+/* ── List group inside modals ─────────────────────────────────────────── */
+.list-group-item {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  border-color: var(--bs-border-color-translucent);
 }
+.list-group-item:hover { background-color: var(--bs-tertiary-bg); }
+.list-group .form-check-input:checked + span { font-weight: 600; }
 
-/* ── Override Bootstrap's `text-dark`/`text-body` utilities inside the
-       dark theme so badges/labels using bg-light + text-dark still read ── */
-[data-bs-theme="dark"] .bg-light.text-dark,
-[data-bs-theme="dark"] .bg-light.text-body {
-  color: var(--bs-body-color) !important;
-}
+/* ── Stat card numbers (text-primary/info/etc. are fine in both modes) ─ */
+.display-6 { font-size: 2rem; }
 
 /* ── AG Grid wrapper — give it a faint border in both themes ──────────── */
 #previewGrid,
@@ -172,12 +198,36 @@ pre.bg-light {
   border-radius: var(--pivot-app-card-radius);
 }
 
-/* ── Spinner & misc ────────────────────────────────────────────────────── */
-.spinner-border {
-  vertical-align: -0.125em;
+/* ── Alert variants — Bootstrap already adapts these, but make sure ─────
+       error alerts are readable in dark mode. */
+.alert-secondary {
+  background-color: var(--bs-tertiary-bg);
+  color: var(--bs-body-color);
+  border-color: var(--bs-border-color-translucent);
 }
 
+/* ── Spinner colour ───────────────────────────────────────────────────── */
+.spinner-border { vertical-align: -0.125em; }
+
 /* ── Dropdown items — readable in both modes ───────────────────────────── */
+.dropdown-menu {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+  border-color: var(--bs-border-color-translucent);
+}
 .dropdown-item {
   cursor: pointer;
+  color: var(--bs-body-color);
 }
+.dropdown-item:hover,
+.dropdown-item:focus {
+  background-color: var(--bs-tertiary-bg);
+  color: var(--bs-body-color);
+}
+
+/* ── Btn-close in dark mode ───────────────────────────────────────────── */
+[data-bs-theme="dark"] .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+
+/* ── Btn-link colour in dark mode (for "Select all" / "Clear") ────────── */
+[data-bs-theme="dark"] .btn-link { color: #6ea8fe; }
+[data-bs-theme="dark"] .btn-link:hover { color: #8bb9fe; }

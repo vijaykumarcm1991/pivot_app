@@ -28,7 +28,7 @@
 
     <!-- Dataset & sheet selection -->
     <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white fw-semibold">
+      <div class="card-header fw-semibold">
         <i class="bi bi-file-earmark-spreadsheet me-2 text-success"></i>Source Data
       </div>
       <div class="card-body">
@@ -55,9 +55,9 @@
 
     <!-- Rows (Row grouping) -->
     <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+      <div class="card-header fw-semibold d-flex justify-content-between">
         <span><i class="bi bi-list-nested me-2 text-primary"></i>Rows</span>
-        <span class="badge bg-light text-dark" id="rowsBadge">0</span>
+        <span class="badge bg-body-tertiary text-body" id="rowsBadge">0</span>
       </div>
       <div class="card-body">
         <select id="rowsSelect" class="form-select" multiple size="6" style="min-height: 120px" disabled></select>
@@ -72,9 +72,9 @@
 
     <!-- Columns (Column grouping) -->
     <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+      <div class="card-header fw-semibold d-flex justify-content-between">
         <span><i class="bi bi-layout-three-columns me-2 text-info"></i>Columns</span>
-        <span class="badge bg-light text-dark" id="colsBadge">0</span>
+        <span class="badge bg-body-tertiary text-body" id="colsBadge">0</span>
       </div>
       <div class="card-body">
         <select id="colsSelect" class="form-select" multiple size="6" style="min-height: 120px" disabled></select>
@@ -89,9 +89,9 @@
 
     <!-- Date Grouping (for datetime fields) -->
     <div class="card border-0 shadow-sm mb-3" id="dateGroupingCard" style="display:none">
-      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+      <div class="card-header fw-semibold d-flex justify-content-between">
         <span><i class="bi bi-calendar3 me-2 text-warning"></i>Date Grouping</span>
-        <span class="badge bg-light text-dark" id="dateGroupingBadge">0</span>
+        <span class="badge bg-body-tertiary text-body" id="dateGroupingBadge">0</span>
       </div>
       <div class="card-body">
         <div id="dateGroupingList" class="mb-3">
@@ -120,9 +120,9 @@
 
     <!-- Values (Aggregations) -->
     <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+      <div class="card-header fw-semibold d-flex justify-content-between">
         <span><i class="bi bi-calculator me-2 text-success"></i>Values</span>
-        <span class="badge bg-light text-dark" id="valuesBadge">0</span>
+        <span class="badge bg-body-tertiary text-body" id="valuesBadge">0</span>
       </div>
       <div class="card-body">
         <div id="valueList" class="mb-3"></div>
@@ -146,7 +146,7 @@
 
     <!-- Filters -->
     <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white fw-semibold">
+      <div class="card-header fw-semibold">
         <i class="bi bi-funnel me-2 text-warning"></i>Filters
       </div>
       <div class="card-body">
@@ -196,7 +196,7 @@
 
     <!-- Layout & Totals -->
     <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white fw-semibold">
+      <div class="card-header fw-semibold">
         <i class="bi bi-layout-split me-2 text-secondary"></i>Layout &amp; Totals
       </div>
       <div class="card-body">
@@ -238,9 +238,9 @@
 
     <!-- Row Field Sorting -->
     <div class="card border-0 shadow-sm mb-3" id="sortingCard" style="display:none">
-      <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+      <div class="card-header fw-semibold d-flex justify-content-between">
         <span><i class="bi bi-sort-down me-2 text-info"></i>Row Sorting</span>
-        <span class="badge bg-light text-dark" id="sortBadge">0</span>
+        <span class="badge bg-body-tertiary text-body" id="sortBadge">0</span>
       </div>
       <div class="card-body">
         <div id="sortList" class="mb-2"></div>
@@ -267,7 +267,7 @@
 
     <!-- Validation result panel -->
     <div id="validationPanel" class="card border-0 shadow-sm mb-3" style="display:none">
-      <div class="card-header bg-white fw-semibold d-flex justify-content-between align-items-center">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
         <span><i class="bi bi-shield-check me-2 text-info"></i>Validation</span>
         <span id="validationBadge" class="badge"></span>
       </div>
@@ -277,7 +277,7 @@
     <!-- Pivot grid -->
     <div id="resultsContainer">
       <div class="card border-0 shadow-sm" id="pivotCard" style="display:none">
-        <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+        <div class="card-header fw-semibold d-flex justify-content-between">
           <span><i class="bi bi-table me-2 text-success"></i>Pivot Table</span>
           <a href="#" id="drilldownBtn" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-zoom-in me-1"></i>Drilldown
@@ -290,8 +290,8 @@
 
       <!-- Raw JSON debug (collapsible) -->
       <div class="card border-0 shadow-sm mt-3" id="debugCard" style="display:none">
-        <div class="card-header bg-white fw-semibold" data-bs-toggle="collapse" data-bs-target="#debugCollapse" style="cursor:pointer">
-          <i class="bi bi-code me-2 text-muted"></i>API Request & Response (debug)
+        <div class="card-header fw-semibold" data-bs-toggle="collapse" data-bs-target="#debugCollapse" style="cursor:pointer">
+          <i class="bi bi-code me-2 text-muted"></i>API Request &amp; Response (debug)
           <i class="bi bi-chevron-down float-end"></i>
         </div>
         <div class="collapse" id="debugCollapse">
@@ -299,11 +299,11 @@
             <div class="row g-3">
               <div class="col-lg-6">
                 <label class="form-label small fw-bold">Request sent</label>
-                <pre id="requestJson" class="bg-light p-2 rounded small" style="max-height: 220px; overflow: auto"></pre>
+                <pre id="requestJson" class="p-2 rounded small" style="max-height: 220px; overflow: auto"></pre>
               </div>
               <div class="col-lg-6">
                 <label class="form-label small fw-bold">Response received</label>
-                <pre id="responseJson" class="bg-light p-2 rounded small" style="max-height: 220px; overflow: auto"></pre>
+                <pre id="responseJson" class="p-2 rounded small" style="max-height: 220px; overflow: auto"></pre>
               </div>
             </div>
           </div>
