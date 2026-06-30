@@ -351,7 +351,12 @@ def build_email_html(
     generated_on = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     pivot_table_html = _pivot_rows_to_html(pivot_rows, pivot_response)
-    grand_total_html = _grand_total_to_html(pivot_response)
+    # The grand-total row is intentionally NOT rendered — it was
+    # coming out blank in V1 because the engine returns `grand`
+    # keyed by value-label, not by column, and the column-name
+    # alignment is fragile. The user asked to drop the grand-total
+    # block entirely. All totals are still in the .xlsx attachment.
+    grand_total_html = ""
 
     return f"""<!DOCTYPE html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -460,62 +465,6 @@ def _pivot_rows_to_html(
               <table role=\"presentation\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">
                 <thead><tr>{header_cells}</tr></thead>
                 <tbody>{''.join(body_rows)}</tbody>
-              </table>
-            </td>
-          </tr>
-"""
-
-
-def _grand_total_to_html(pivot_response: Dict[str, Any]) -> str:
-    """Render the grand-total row, if any, as a single highlighted
-    row appended to the table. We render it as a small standalone
-    table so it sits flush with the rest of the email body."""
-
-    totals = (pivot_response or {}).get("totals") or {}
-    grand = totals.get("grand") or {}
-    if not grand:
-        return ""
-    columns = list((pivot_response or {}).get("columns") or [])
-    if not columns:
-        columns = list(grand.keys())
-
-    # Find the first non-total column to put the "Grand Total" label.
-    label_col = None
-    for c in columns:
-        if c in {"row_total", "_warning", "Rows"}:
-            continue
-        label_col = c
-        break
-    if not label_col:
-        return ""
-
-    cells = []
-    for c in columns:
-        if c == label_col:
-            cells.append(
-                '<td style="padding:6px 12px;border:1px solid #198754;'
-                'background-color:#d1e7dd;font-size:12px;font-weight:bold;color:#0a3622;">'
-                'Grand Total</td>'
-            )
-        elif c in grand:
-            cells.append(
-                f'<td style="padding:6px 12px;border:1px solid #198754;'
-                f'background-color:#d1e7dd;font-size:12px;font-weight:bold;color:#0a3622;'
-                f'text-align:right;">{_html_escape(str(grand[c]))}</td>'
-            )
-        else:
-            cells.append(
-                '<td style="padding:6px 12px;border:1px solid #198754;'
-                'background-color:#d1e7dd;font-size:12px;color:#0a3622;">'
-                '&nbsp;</td>'
-            )
-
-    return f"""
-          <tr>
-            <td style=\"padding:0 24px 16px 24px;\">
-              <div style=\"font-size:11px;color:#666;margin-bottom:4px;\">Grand Total</div>
-              <table role=\"presentation\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border-collapse:collapse;\">
-                <tbody><tr>{''.join(cells)}</tr></tbody>
               </table>
             </td>
           </tr>
