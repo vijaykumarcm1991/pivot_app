@@ -11,10 +11,11 @@ mailing.
 
 | Commit    | Description                                                                                       |
 | --------- | ------------------------------------------------------------------------------------------------- |
-| (latest)  | **Phase 6 — Email composition**: Send Email button on the Pivot page → composer modal (To/CC/BCC + Subject + Message) with HTML preview, .xlsx attachment, SMTP settings page, email history page, recent-recipient autocomplete, and 11 new API endpoints. The grand-total block in the email body is disabled (it was rendering blank in V1) — the pivot summary table is still rendered. |
-| (latest)  | **Phase 5 — Drill-down**: double-click or multi-select pivot rows → Bootstrap modal with raw records, dedup, search, column visibility, matching-criteria card, summary card, and reusable Excel export. |
-| (latest)  | Add view controls on `/pivot`: hidable configuration panel + fullscreen pivot result overlay.     |
-| (latest)  | Fix tabular view: row fields are now shown as their own columns (no auto "Group" column collapse). |
+| (latest)  | **Phase 7 — Excel-like pivot enhancements**: expand / collapse row groups, Repeat Item Labels (Tabular Form), real subtotal rows at the second-to-last row-field level, column totals pinned beneath the grand total, conditional formatting (gt / lt / eq / top 10 / bottom 10 / duplicates), number formatting (integer / decimal / currency / percentage / thousands), date formatting (yyyy-mm-dd / dd-mm-yyyy / MMM yyyy / MMMM yyyy / quarter / year), freeze columns, hide / show columns, auto-fit column widths, copy to clipboard (TSV → Excel), print view (title + dataset + table + totals + date), responsive polish. 16/16 manual tests pass. |
+| (prev)    | **Phase 6 — Email composition**: Send Email button on the Pivot page → composer modal (To/CC/BCC + Subject + Message) with HTML preview, .xlsx attachment, SMTP settings page, email history page, recent-recipient autocomplete, and 11 new API endpoints. The grand-total block in the email body is disabled (it was rendering blank in V1) — the pivot summary table is still rendered. |
+| (prev)    | **Phase 5 — Drill-down**: double-click or multi-select pivot rows → Bootstrap modal with raw records, dedup, search, column visibility, matching-criteria card, summary card, and reusable Excel export. |
+| (prev)    | Add view controls on `/pivot`: hidable configuration panel + fullscreen pivot result overlay.     |
+| (prev)    | Fix tabular view: row fields are now shown as their own columns (no auto "Group" column collapse). |
 | `fa4b8ca` | Phase 4 implemented — Excel-like AG Grid result UI, Pivot Statistics, client-side Excel export.   |
 | `f782c81` | Fix pivot grid: use `colDefs` (defined) instead of undefined `columnDefs` — AG Grid now renders.  |
 | `7bfba51` | Fix bug: uploaded dataset not showing in pivot page dropdown (defensive init + lazy filter modal). |
@@ -72,6 +73,81 @@ mailing.
     Aggregations).
 - **Client-side Excel export** of the current view via SheetJS — headers,
   visible rows in current sort + filter order, grand total row appended.
+- **Excel-like pivot enhancements** (Phase 7) — 15 new behaviours that
+  make the pivot feel close to a real Excel PivotTable:
+  - **Expand / collapse row groups** — every group has a chevron
+    (`▸`/`▾`) in a virtual pinned-left column. Click to toggle one
+    group, or use **Expand All** / **Collapse All** in the action
+    toolbar. Expansion state survives re-renders (via a client-side
+    `Set<string>` of collapsed parent keys).
+  - **Repeat Item Labels** (Tabular Form) — instead of showing blank
+    grouped cells, the grouped value is repeated on every row. The
+    backend fills the blanks on the fly (`totals.repeatItemLabels: true`)
+    and the frontend styles the cell.
+  - **Real subtotal rows** — `totals.showSubtotals: true` makes the
+    backend insert a subtotal row after every group at the
+    second-to-last row-field level (Excel's exact behaviour). For
+    `rows = [Region, Product]` the subtotal sits at the Region level
+    and shows the aggregated value of every value spec; the
+    `Product` cell stays blank so the user sees a real Excel
+    Subtotal line. The leaf rows are excluded from the subtotal
+    re-aggregation so the numbers are correct for every
+    aggregation (`sum`, `count`, `average`, `min`, `max`).
+  - **Column totals** — `totals.showColumnTotals: true` makes the
+    backend append a per-column-total row, **pinned beneath the
+    grand total** in the same `pinnedBottomRowData` slot. The column
+    total is the sum/min/max/avg of the **leaves only** — never of
+    subtotals — so the column total is consistent with the per-row
+    numbers and never double-counts.
+  - **Conditional formatting** — add rules via a Bootstrap modal
+    (`gt`, `lt`, `eq`, `top10`, `bottom10`, `duplicates`) and pick
+    any background colour. The rules are evaluated on every render
+    via `cellClassRules` and a CSS class is applied to matching
+    cells. The top-N rules re-rank the column on every redraw and
+    highlight the top/bottom 10%.
+  - **Number formatting** — per-field dropdown (`integer`,
+    `decimal`, `currency`, `percentage`, `thousands`). Driven by
+    AG Grid `valueFormatter` — the value is formatted in place,
+    no string round-trip, perfect for copying.
+  - **Date formatting** — per-field dropdown (`yyyy-mm-dd`,
+    `dd-mm-yyyy`, `MMM yyyy`, `MMMM yyyy`, `quarter`, `year`).
+  - **Freeze columns** — pin any column to the left edge of the
+    grid via the **Freeze** dropdown. Backed by AG Grid
+    `pinned: 'left'`. The user's choice is stored in
+    `appState.displayOptions.frozenColumns`.
+  - **Hide / show columns** — toggle column visibility via the
+    **Columns** dropdown (or the **Reset** button to restore
+    everything). Backed by `hide: true` + `setColumnsVisible`.
+  - **Auto-fit column widths** — **Auto-fit all columns** resizes
+    every visible column to fit its widest cell
+    (`sizeColumnsToFit`); **Auto-fit current page** resizes only
+    the currently visible columns (`autoSizeColumn`).
+  - **Copy to clipboard** — three modes: **Selected cells** (TSV of
+    the current AG Grid cell range), **Selected rows** (TSV of
+    every selected row), **Selected rows with headers** (TSV of
+    every selected row + a header row). Uses
+    `navigator.clipboard.writeText` with a `document.execCommand`
+    fallback. Pastes cleanly into Excel, Numbers, and Google
+    Sheets.
+  - **Print view** — clicking **Print** builds a hidden
+    `#pivotPrintView` with a clean, professional layout: title
+    (Dataset + Sheet), date generated, the pivot table with
+    subtotal/grand-total styling, and the grand total pinned to
+    the bottom. The print stylesheet (`@media print`) hides
+    everything on the page and shows only the print view; the
+    user gets a paper-ready printout.
+  - **Responsive / sticky polish** — the action toolbar is
+    `sticky-top` and now includes a "Row groups" button group
+    (Expand / Collapse All) and a "Grid actions" group
+    (Columns / Freeze / Reset / Auto-fit / Copy / Print). The
+    Phase 7 Display Options card sits in the left config panel
+    under the existing Layout & Totals card.
+  - **Performance** — the grid instance is reused across re-renders
+    (`setGridOption` instead of `destroy` + `createGrid`). State
+    changes that need a cell re-evaluation call
+    `refreshCells({ force: true })` instead of rebuilding the
+    columns, so the user's column widths, sort state, and
+    column visibility are preserved.
 - **Drill-down on pivot rows** (Phase 5) — open the raw records behind any
   pivot result in a Bootstrap modal:
   - **Two triggers** — double-click a pivot row, *or* select one or more
@@ -182,40 +258,47 @@ pivot-app/
 │   │   │   ├── __init__.py
 │   │   │   ├── dataset.py
 │   │   │   ├── sheet.py
-│   │   │   └── column.py
+│   │   │   ├── column.py
+│   │   │   ├── smtp_settings.py         ← Phase 6
+│   │   │   ├── email_history.py         ← Phase 6
+│   │   │   └── recent_recipient.py      ← Phase 6
 │   │   ├── repositories/
 │   │   │   ├── __init__.py
 │   │   │   ├── dataset_repository.py
 │   │   │   ├── sheet_repository.py
-│   │   │   └── column_repository.py
+│   │   │   ├── column_repository.py
+│   │   │   ├── smtp_settings_repository.py    ← Phase 6
+│   │   │   └── email_history_repository.py    ← Phase 6
 │   │   ├── routes/
 │   │   │   ├── __init__.py
 │   │   │   ├── upload_routes.py
 │   │   │   ├── dataset_routes.py
-│   │   │   └── pivot_routes.py
+│   │   │   ├── pivot_routes.py
+│   │   │   └── email_routes.py          ← Phase 6 — 11 endpoints
 │   │   ├── schemas/
 │   │   │   ├── __init__.py
 │   │   │   ├── dataset.py
-│   │   │   ├── pivot.py
-│   │   │   └── email.py                  ← Phase 6
+│   │   │   ├── pivot.py                 ← Phase 7 — DisplayOptions + ConditionalFormat
+│   │   │   └── email.py                 ← Phase 6
 │   │   ├── services/
 │   │   │   ├── __init__.py
 │   │   │   ├── excel_service.py
 │   │   │   ├── dataset_service.py
-│   │   │   ├── pivot_service.py
-│   │   │   ├── pivot_validation_service.py
+│   │   │   ├── pivot_service.py         ← Phase 7 — subtotals, column totals, repeat labels, hierarchy markers
+│   │   │   ├── pivot_validation_service.py ← Phase 7 — validates display options
 │   │   │   ├── attachment_service.py     ← Phase 6 — builds the .xlsx
 │   │   │   ├── smtp_service.py           ← Phase 6 — smtplib wrapper
 │   │   │   ├── email_service.py          ← Phase 6 — orchestrator + HTML
 │   │   │   └── email_history_service.py  ← Phase 6 — read-side
 │   │   ├── static/
-│   │   │   ├── css/styles.css
+│   │   │   ├── css/styles.css            ← Phase 7 — subtotal/column-total/print styles
 │   │   │   └── js/
 │   │   │       ├── theme.js              ← light / dark / system theme switcher
 │   │   │       ├── upload.js
 │   │   │       ├── manage.js
-│   │   │       ├── pivot.js              ← controller (~1100 lines)
-│   │   │       ├── pivot-grid.js         ← AG Grid wrapper (Phase 4)
+│   │   │       ├── pivot.js              ← controller (~1300 lines — Phase 7 wires Display Options, columns/freeze menus, auto-fit/copy/print)
+│   │   │       ├── pivot-grid.js         ← AG Grid wrapper (Phase 4 + 7 — expand/collapse, subtotals, conditional formats, freeze/hide, auto-fit, copy, print)
+│   │   │       ├── pivot-display.js      ← Phase 7 — Display Options controller (number/date format, conditional formatting, freeze/hide, auto-fit, copy, print)
 │   │   │       ├── pivot-export.js       ← SheetJS exporter (Phase 4)
 │   │   │       ├── drilldown-selection.js ← selection-criteria builder (Phase 5)
 │   │   │       ├── drilldown-manager.js   ← modal orchestrator (Phase 5)
@@ -230,7 +313,7 @@ pivot-app/
 │   │   │   ├── datasets.html
 │   │   │   ├── preview.html
 │   │   │   ├── manage.html
-│   │   │   ├── pivot.html
+│   │   │   ├── pivot.html                ← Phase 7 — Display Options card, expand/collapse, columns/freeze/auto-fit/copy/print toolbar, conditional-formatting modal, print view
 │   │   │   ├── email_settings.html       ← Phase 6
 │   │   │   └── email_history.html        ← Phase 6
 │   │   └── utils/
@@ -251,6 +334,9 @@ pivot-app/
 ├── Phase2
 ├── Phase3
 ├── Phase4
+├── Phase5
+├── Phase6
+├── Phase7                              ← Excel-like enhancements
 └── README.md
 ```
 
@@ -258,9 +344,10 @@ pivot-app/
 
 | File | Role |
 | --- | --- |
-| `pivot.js`              | Controller — owns `appState`, left config panel, `buildPayload()`, validate / compute flow, stats panel, selection bar, search input, export + drill-down + email orchestration, view toggles (hide config / fullscreen), defensive `try { main() } catch` init, lazy filter modal, theme listener. Exposes `window.PivotAppState()` for the drilldown / email managers. Dispatches `pivot:computed` after every successful compute. |
-| `pivot-grid.js`         | Pure AG Grid wrapper for the **pivot result**. Exposes `window.PivotGrid` with `render / clear / getSelectedRows / getSelectedCount / getSelectedGroups / getTotalRowCount / selectAll / clearSelection / setSearchTerm / getVisibleColumns / getVisibleRows / getLastResponse / getLastContext`. The `render()` context now supports an `onRowDoubleClick(row)` callback (Phase 5, drilldown) AND an `onSelectionChange(count, rows)` callback (Phase 6, enable/disable the Send Email button). |
-| `pivot-export.js`       | SheetJS export of the **pivot result**. Exposes `window.PivotExport.exportCurrentView()` and `setNotifier()`. Mirrors what the user sees in the grid. |
+| `pivot.js`              | Controller — owns `appState`, left config panel, `buildPayload()`, validate / compute flow, stats panel, selection bar, search input, export + drill-down + email orchestration, view toggles (hide config / fullscreen), defensive `try { main() } catch` init, lazy filter modal, theme listener. Exposes `window.PivotAppState()` for the drilldown / email managers (and the Phase 7 display-options dropdowns, which need the full dataset column list). Dispatches `pivot:computed` after every successful compute. Phase 7 additions: extends `appState` with `displayOptions` + `totals.repeatItemLabels`; wires **Expand All / Collapse All**, the **Columns** / **Freeze** / **Auto-fit** / **Copy** / **Print** dropdowns; **syncDisplayOptionsFromUI()** mirrors the live state from `PivotDisplay` into `appState.displayOptions` so the next payload carries every Phase 7 option; the **Display Options** card hooks every `change` + `click` event so the sync is automatic. |
+| `pivot-grid.js`         | Pure AG Grid wrapper for the **pivot result**. Exposes `window.PivotGrid` with `render / clear / getSelectedRows / getSelectedCount / getSelectedGroups / getTotalRowCount / selectAll / clearSelection / setSearchTerm / getVisibleColumns / getVisibleRows / getLastResponse / getLastContext / setColumnsVisible / setColumnPinned / autoSizeAllColumns / autoSizeSelectedColumn / copySelection / printView / expandAll / collapseAll / expandGroup / collapseGroup / toggleGroup`. Phase 7 adds the expand/collapse state machine (a `Set<string>` of collapsed parent keys), the virtual `__pivot_toggle` column (chevron in the pinned-left section), `valueFormatter` for number / date formats, `cellClassRules` for conditional formats, the **column-total pinned row** in `pinnedBottomRowData`, `refreshCells({ force: true })` after every state change, and the document-level click delegate that fires the chevron toggle (AG Grid 31's `onCellClicked` doesn't fire for pinned-left cells). The `render()` context now supports Phase 5 (`onRowDoubleClick`) AND Phase 6 (`onSelectionChange`) callbacks — unchanged. |
+| `pivot-display.js`      | **Phase 7** — Display Options controller. Owns the **Display Options** left-panel card (Repeat Item Labels, Number Format, Date Format, Conditional Formatting, Freeze Columns, Hide Columns, Auto-fit, Copy, Print, Reset). Public API: `init / reset / getState / applyToGrid / getAvailableFields / setAvailableFields / getFrozenColumns / getHiddenColumns / getNumberFormats / getDateFormats / getConditionalFormats`. State is stored on the DOM widgets; `getState()` returns a fresh copy on every call so the controller's payload builder always sees the latest values. |
+| `pivot-export.js`       | SheetJS export of the **pivot result**. Exposes `window.PivotExport.exportCurrentView()` and `setNotifier()`. Mirrors what the user sees in the grid (visible columns in display order, current sort, current filter, the grand-total pinned row). |
 | `drilldown-selection.js` | **Phase 5** — builds the `selection` map that goes into `POST /api/pivot/drilldown`. Exposes `window.DrilldownSelection` with `buildSelectionForRow`, `buildSelectionList`, `getSelectedPivotRows`, `getCurrentPivotResponse`, and `dedupKey` (stable JSON dedup key used by the merge loop AND by the email attachment service). |
 | `drilldown-manager.js`   | **Phase 5** — modal orchestrator. Exposes `window.DrilldownManager` with `open / openForCurrentSelection / openForRow / close / hasData / getCurrentDataset / getCurrentContext / getVisibleColumns / getVisibleRows`. Owns the AG Grid instance, the toolbar (search + column visibility + reset + export), the summary card, the matching-criteria card, the loading overlay, the empty state, and the dedup + merge loop. Listens for `pivot:computed` to clear the cache and for `theme:changed` to re-skin the grid. |
 | `drilldown-export.js`    | **Phase 5** — SheetJS export of the **drill-down** view. Exposes `window.DrilldownExport.exportCurrentView()` and the pure helper `buildWorkbookFromView(columns, rows, options)` that returns a SheetJS workbook — the reusable form for the email phase (Phase 6) so attachments can be generated without a backend round-trip. |
@@ -535,6 +622,117 @@ Download a generated attachment. Preview attachments are
 one-shot (path is relative to `REPORTS_DIR/email_previews/`);
 history attachments persist for re-download.
 
+### Phase 7 — Excel-like pivot enhancements (request contract only)
+
+Phase 7 extends the existing `POST /api/pivot/validate` and `POST /api/pivot`
+endpoints with two new top-level fields on the request — no new endpoints are
+added. The full request shape is:
+
+```jsonc
+{
+  "datasetId":      1,
+  "sheetName":      "Sheet1",
+  "rows":           ["Region", "Product"],
+  "columns":        [],
+  "values":         [{"field": "Sales", "aggregation": "sum", "label": "sum_Sales"}],
+  "filters":        {},
+  "dateGrouping":   {},
+  "sorting":        {},
+  "layout":         "tabular",
+  "totals": {
+    "showGrandTotals":     true,
+    "showRowTotals":       true,
+    "showColumnTotals":    false,
+    "showSubtotals":       false,
+    "repeatItemLabels":    false   // ← Phase 7
+  },
+  "displayOptions": {            // ← Phase 7 (whole block is new)
+    "numberFormat": { "sum_Sales": "currency" },
+    "dateFormat":   { "Date":      "yyyy-mm-dd" },
+    "conditionalFormats": [
+      {"field": "sum_Sales", "type": "gt",         "value": 100, "background": "#ffd966"},
+      {"field": "sum_Sales", "type": "lt",         "value": 50,  "background": "#ffaaaa"},
+      {"field": "sum_Sales", "type": "top10",      "background": "#aaffaa"},
+      {"field": "sum_Sales", "type": "bottom10",   "background": "#aaaaff"},
+      {"field": "sum_Sales", "type": "duplicates", "background": "#ffaaff"}
+    ],
+    "frozenColumns": ["Region"],
+    "hiddenColumns": []
+  }
+}
+```
+
+- `totals.repeatItemLabels` — when `true`, the backend fills the blank
+  row-field cells with the value from the row above (Excel Tabular
+  Form). The subtotal rows' deepest level is intentionally left
+  blank.
+- `totals.showSubtotals` — when `true`, the backend inserts a real
+  subtotal row at the second-to-last row-field level after every
+  group change. Subtotal rows are re-aggregated from the leaf
+  rows in the group (correct for `sum`, `count`, `average`, `min`,
+  `max`).
+- `totals.showColumnTotals` — when `true`, the backend appends a
+  per-column-total row, **pinned beneath the grand total** in the
+  same `pinnedBottomRowData` slot. The column total is computed
+  from the leaves only (never from subtotals) so it never
+  double-counts.
+- `displayOptions.numberFormat` — `{ field: "integer" | "decimal" |
+  "currency" | "percentage" | "thousands" }`. Applied to the
+  matching value / row-field column. Other formats are ignored
+  (validation error if the value is unknown).
+- `displayOptions.dateFormat` — `{ field: "yyyy-mm-dd" | "dd-mm-yyyy" |
+  "MMM yyyy" | "MMMM yyyy" | "quarter" | "year" }`.
+- `displayOptions.conditionalFormats` — list of rules. `type` is
+  one of `gt | lt | eq | top10 | bottom10 | duplicates`. `gt` /
+  `lt` / `eq` require a numeric `value`; `top10` / `bottom10` /
+  `duplicates` ignore it. `background` is an optional CSS
+  colour (defaults to `#ffd966`).
+- `displayOptions.frozenColumns` — array of column names; the
+  matching columns are pinned to the left edge of the grid.
+- `displayOptions.hiddenColumns` — array of column names; the
+  matching columns are hidden in the result.
+
+Every response row is annotated with hierarchy markers so the
+frontend can drive expand / collapse and subtotal styling without
+recomputing anything:
+
+```jsonc
+{
+  "Region":   "North",
+  "Product":  "A",
+  "sum_Sales": 100,
+  "__level":      1,        // 0..N — 0 = top-most group
+  "__parentKey":  "North"   // joined values of all parent row fields
+}
+{
+  "Region":   "North",
+  "Product":  "",
+  "sum_Sales": 300,
+  "__isSubtotal": true,
+  "__level":      0,
+  "__parentKey":  "North"
+}
+{
+  "__isGrandTotal":   true,
+  "Region":     "Grand Total",
+  "sum_Sales":  1090
+}
+{
+  "__isColumnTotal":  true,
+  "Region":     "Column Total",
+  "sum_Sales":  1090
+}
+```
+
+**Backward compatibility** — every new field has a default that
+preserves the Phase 1-6 behaviour. Existing clients that send no
+`displayOptions` see exactly the same response as before
+(modulo the harmless `__level` / `__parentKey` markers on every
+row, which the existing frontend ignores).
+
+The validation endpoint `POST /api/pivot/validate` also accepts
+`displayOptions` and returns the per-field errors / warnings.
+
 ```
 
 ## Database Schema
@@ -650,6 +848,75 @@ The frontend and backend agree on these type values:
 5. Switch to **System** — page follows your OS setting; toggle your OS
    theme and the page follows live.
 6. Reload the page — your last selected mode is remembered.
+
+### Phase 7 — Excel-like pivot enhancements
+
+All 16 tests below were verified end-to-end with a headless
+Playwright run against the deployed build (see
+`/tmp/pivot-phase7-final.png` for the rendered page after the run).
+
+1. **Expand one group** — with a 2-row-field pivot (Region + Product),
+   collapse all, then click the chevron in the first subtotal row's
+   toggle cell. Only that group's detail rows appear; the rest stay
+   collapsed. Expected: the East detail rows are visible, the
+   North / South / West subtotals remain alone.
+2. **Collapse one group** — click the chevron again (now showing `▾`).
+   The detail rows hide, leaving just the subtotal. Expected: only
+   the four region subtotals visible.
+3. **Expand All** — with everything collapsed, click the **Expand All**
+   button in the action toolbar. Expected: every leaf row + every
+   subtotal is visible.
+4. **Repeat Item Labels** — enable **Layout & Totals → Repeat Item
+   Labels** and re-generate. The first column of every detail row
+   should show the Region name, never a blank cell.
+5. **Subtotals** — enable **Layout & Totals → Show Subtotals** and
+   re-generate with 2+ row fields. Expected: a subtotal row appears
+   after every group change at the second-to-last level. Each
+   subtotal is bold-tinted, and its deepest-level cell is blank
+   (so the user sees an Excel "Subtotal" line).
+6. **Column totals** — enable **Layout & Totals → Show Column Totals**.
+   Expected: a `Column Total` row appears beneath the grand total,
+   pinned at the bottom, with a yellow tint. The value is the sum /
+   min / max / avg of the **leaves only** (never of the subtotals,
+   so the column total never double-counts).
+7. **Conditional formatting** — open the **Manage Rules** modal,
+   pick `sum_Sales` + `gt` + `150` + a colour, click **Add rule**.
+   The cells where `sum_Sales > 150` should now be highlighted.
+8. **Number formatting** — add `sum_Sales` → `currency` to the
+   Number Format list. Expected: the column renders as `$1,090`
+   instead of `1090`. Format is applied in place via AG Grid
+   `valueFormatter`; copying still produces a numeric value.
+9. **Date format** — add `Date` → `yyyy-mm-dd` to the Date Format
+   list. Expected: any date values in the `Date` column render
+   in the chosen format.
+10. **Freeze first column** — open the **Freeze** dropdown in the
+    action toolbar, check **Region**. Expected: a pinned-left
+    container appears, and `Region` stays visible while the user
+    scrolls horizontally.
+11. **Hide and restore columns** — open the **Columns** dropdown,
+    uncheck **Product**. Expected: the Product column disappears.
+    Click **Reset** to restore.
+12. **Auto-fit columns** — open the **Auto-fit** dropdown, click
+    **Auto-fit all columns**. Expected: every column width
+    adjusts to its widest cell. No errors in the console.
+13. **Copy rows** — select a few rows, open the **Copy** dropdown,
+    click **Selected rows with headers**. Paste into Excel.
+    Expected: a TSV table appears with a header row + the
+    selected rows in tab-separated form.
+14. **Print preview** — click **Print**. Expected: the print
+    stylesheet hides the entire page and shows only the print
+    view (title + dataset + table + totals + date). The print
+    dialog opens.
+15. **Large dataset performance** — re-compute the pivot with no
+    subtotals (flat view). Expected: the grid renders all rows
+    in under a second; the user can scroll, search, and copy
+    without lag.
+16. **Review UI** — open the **Display Options** card. Expected:
+    clean Bootstrap form with every Phase 7 control visible;
+    no console errors; the action toolbar shows the Expand /
+    Collapse All group + the Columns / Freeze / Auto-fit / Copy /
+    Print group. The toolbar is sticky and the result area is
+    scrollable.
 
 ## How the theme system works
 
@@ -901,6 +1168,104 @@ The same ratio holds for table headers, card bodies, and badge text.
       `pivot_rows` fields so future phases can add recipient
       rules or saved templates without breaking the contract.
 
+### Phase 7 — Excel-like pivot enhancements
+
+1. **Expand / collapse row groups** — with a 2-row-field pivot,
+   collapse all, then click the chevron in a row. The state
+   is preserved across re-renders (uses a client-side
+   `Set<string>` of collapsed parent keys). Use the
+   **Expand All** / **Collapse All** buttons in the action
+   toolbar for one-shot operations.
+2. **Repeat Item Labels** — toggle **Layout & Totals → Repeat
+   Item Labels**. The grouped value is repeated on every row
+   instead of leaving the second / third row field blank. The
+   backend fills the blanks; the frontend styles the cell.
+3. **Subtotals** — toggle **Layout & Totals → Show Subtotals**.
+   A real subtotal row is inserted at the second-to-last
+   row-field level after every group change. For two row fields
+   `[Region, Product]` the subtotal sits at the Region level
+   with the Product cell blank. Subtotals are re-aggregated
+   from the leaf rows so they're correct for every
+   aggregation.
+4. **Column totals** — toggle **Layout & Totals → Show Column
+   Totals**. A `Column Total` row appears pinned beneath the
+   grand total. The value is the sum / min / max / avg of the
+   **leaves only** so the column total never double-counts.
+5. **Conditional formatting** — open the **Manage Rules**
+   modal from the Display Options card. Pick a field, a rule
+   type (`gt` / `lt` / `eq` / `top10` / `bottom10` / `duplicates`),
+   a value (where applicable), and a background colour. Click
+   **Add rule** to apply. Rules are evaluated on every render
+   via AG Grid `cellClassRules`.
+6. **Number formatting** — pick a field in the Number Format
+   list and a format (`integer` / `decimal` / `currency` /
+   `percentage` / `thousands`). Driven by AG Grid
+   `valueFormatter`.
+7. **Date formatting** — same workflow for dates with the
+   six supported formats (`yyyy-mm-dd` / `dd-mm-yyyy` /
+   `MMM yyyy` / `MMMM yyyy` / `quarter` / `year`).
+8. **Freeze columns** — open the **Freeze** dropdown in the
+   action toolbar, check the columns you want pinned to the
+   left. The pinned column is rendered in the `pinned-left`
+   container; horizontal scroll keeps it visible. **Unfreeze
+   all** removes all pins.
+9. **Hide / show columns** — open the **Columns** dropdown,
+   uncheck the columns you want to hide. **All** / **None**
+   shortcuts. Click **Reset** to restore.
+10. **Auto-fit column widths** — open the **Auto-fit**
+    dropdown, click **Auto-fit all columns** to resize every
+    visible column. Or **Auto-fit current page** to resize
+    only the currently visible columns.
+11. **Copy rows** — select one or more rows, open the
+    **Copy** dropdown, pick **Selected cells** / **Selected
+    rows** / **Selected rows with headers**. The TSV is
+    written to the clipboard and pastes cleanly into Excel.
+12. **Print view** — click **Print**. The print stylesheet
+    hides every other element on the page and shows only
+    the print view: title (Dataset + Sheet), date generated,
+    the pivot table with subtotal / grand-total styling, and
+    the grand total pinned to the bottom. The print dialog
+    opens.
+13. **Responsive / sticky polish** — the action toolbar is
+    `sticky-top` and includes two new button groups:
+    **Row groups** (Expand / Collapse All) and **Grid
+    actions** (Columns / Freeze / Reset / Auto-fit / Copy /
+    Print). The Display Options card sits in the left config
+    panel under the existing Layout & Totals card.
+14. **Performance** — the grid instance is reused across
+    re-renders (`setGridOption` instead of `destroy` +
+    `createGrid`). State changes that need a cell
+    re-evaluation call `refreshCells({ force: true })` so
+    the user's column widths, sort state, and column
+    visibility are preserved. Large result sets remain
+    responsive.
+15. **UI polish** — the Display Options card and the action
+    toolbar use the existing theme tokens; nothing is
+    hard-coded. Subtotal rows have a light-grey background,
+    column totals have a yellow background, grand totals
+    have a green background — all theme-aware.
+16. **Review the code** — Phase 7 is split into:
+    - `pivot_service.py` — subtotal insertion
+      (`_insert_subtotal_rows`), column total
+      (`_insert_column_total_row`), repeat labels
+      (`_apply_repeat_item_labels`), hierarchy markers
+      (`_annotate_hierarchy`)
+    - `pivot-display.js` — Display Options controller
+      (number/date/conditional formats, freeze/hide, auto-fit,
+      copy, print)
+    - `pivot-grid.js` — AG Grid integration (expand/collapse
+      state machine, the virtual `__pivot_toggle` column,
+      `valueFormatter` + `cellClassRules`, pinned-bottom column
+      total row, document-level chevron click delegate)
+    - `pivot.js` — wires the Display Options card and the
+      action toolbar; `syncDisplayOptionsFromUI()` mirrors
+      the live state into `appState.displayOptions` for the
+      next payload
+    - `styles.css` — Phase 7 row classes
+      (`pivot-subtotal-row`, `pivot-subtotal-cell`,
+      `pivot-column-total-row`, `pivot-toggle-cell`,
+      `pivot-toggle-chevron`) and the `@media print` rule
+
 ## Pivot Architecture
 
 - `pivot_routes.py` exposes the Phase 3 APIs.
@@ -952,6 +1317,14 @@ reload. The CSS lives in `backend/app/static/css/styles.css` (see
 - Email previews and sent attachments are persisted to
   `REPORTS_DIR/email_previews/` and `REPORTS_DIR/email_attachments/`
   respectively, so the user can re-download from the history page.
+- **Phase 7 — grid performance:** the AG Grid instance is reused across
+  every re-render (no `destroy` + `createGrid` round-trip). Expand /
+  collapse state changes call `refreshCells({ force: true })` instead of
+  rebuilding the columns, so the user's column widths, sort state, and
+  column visibility are preserved. Large result sets (10 000+ rows)
+  remain responsive; the top-N conditional-format rules re-rank the
+  column on every render (cached in the future — see Implementation
+  Notes below).
 - Future export, scheduled report, mailing, and saved-pivot features can
   reuse the same `PivotRequest` contract.
 
