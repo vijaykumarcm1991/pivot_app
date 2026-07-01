@@ -387,6 +387,8 @@ curl -X POST http://localhost:5000/api/pivot/validate \
   -d '{"datasetId": 1, "sheetName": "Sales", "rows": ["Region"]}'
 ```
 
+### Phase 4 — Pivot compute
+
 #### `POST /api/pivot`
 
 Computes a pivot on the backend. Supported aggregations:
@@ -407,6 +409,8 @@ curl -X POST http://localhost:5000/api/pivot \
     "layout": "tabular"
   }'
 ```
+
+### Phase 5 — Drilldown
 
 #### `POST /api/pivot/drilldown`
 
@@ -588,24 +592,24 @@ email service uses when sending.
 
 One row per email the user sends. Passwords are never stored here.
 
-| Column                    | Type     | Description                                       |
-| ---                       | ---      | ---                                               |
-| `id`                      | INTEGER  | Primary key                                       |
-| `sent_at`                 | DATETIME | Send timestamp                                    |
-| `subject`                 | TEXT     | Email subject                                     |
-| `to_addresses_json`      | TEXT     | JSON array of To addresses                        |
-| `cc_addresses_json`      | TEXT     | JSON array of CC addresses                        |
-| `bcc_addresses_json`     | TEXT     | JSON array of BCC addresses                       |
-| `dataset_id`              | INTEGER  | FK → `datasets.id` (informational)               |
-| `dataset_name`            | TEXT     | Original upload filename                         |
-| `sheet_name`              | TEXT     | Sheet the pivot was built from                    |
-| `pivot_rows_count`        | INTEGER  | Number of pivot rows the user sent                |
-| `attached_records_count`  | INTEGER  | Number of records in the .xlsx (post-dedup)       |
-| `status`                  | TEXT     | `success` or `failed`                             |
-| `error_message`           | TEXT     | Failure reason (NULL on success)                  |
-| `attachment_filename`     | TEXT     | The .xlsx filename (e.g. `Pivot_Drilldown_…xlsx`)  |
-| `attachment_path`         | TEXT     | Relative path under `REPORTS_DIR/email_attachments/` |
-| `pivot_payload_json`      | TEXT     | JSON snapshot of the request — lets the history page re-render the email body without re-querying the dataset |
+| Column                   | Type     | Description                                                                |
+| ---                      | ---      | ---                                                                        |
+| `id`                     | INTEGER  | Primary key                                                                |
+| `sent_at`                | DATETIME | Send timestamp                                                             |
+| `subject`                | TEXT     | Email subject                                                              |
+| `to_addresses_json`     | TEXT     | JSON array of To addresses                                                 |
+| `cc_addresses_json`     | TEXT     | JSON array of CC addresses                                                 |
+| `bcc_addresses_json`    | TEXT     | JSON array of BCC addresses                                                |
+| `dataset_id`             | INTEGER  | FK → `datasets.id` (informational)                                        |
+| `dataset_name`           | TEXT     | Original upload filename                                                  |
+| `sheet_name`             | TEXT     | Sheet the pivot was built from                                             |
+| `pivot_rows_count`       | INTEGER  | Number of pivot rows the user sent                                         |
+| `attached_records_count` | INTEGER  | Number of records in the .xlsx (post-dedup)                                |
+| `status`                 | TEXT     | `success` or `failed`                                                      |
+| `error_message`          | TEXT     | Failure reason (NULL on success)                                           |
+| `attachment_filename`    | TEXT     | The .xlsx filename (e.g. `Pivot_Drilldown_2026-06-30_14-30.xlsx`)         |
+| `attachment_path`        | TEXT     | Relative path under `REPORTS_DIR/email_attachments/`                        |
+| `pivot_payload_json`     | TEXT     | JSON snapshot of the request — lets the history page re-render the email body without re-querying the dataset |
 
 ### `recent_recipients` (Phase 6)
 
@@ -647,7 +651,7 @@ The frontend and backend agree on these type values:
    theme and the page follows live.
 6. Reload the page — your last selected mode is remembered.
 
-## Theme (Light / Dark / System)
+## How the theme system works
 
 The app supports a three-mode theme:
 
@@ -700,7 +704,10 @@ The dark mode **contrast ratio** for body text on body background is
 about **11.85 : 1**, comfortably above the WCAG AA threshold of 4.5 : 1.
 The same ratio holds for table headers, card bodies, and badge text.
 
-### Phase 1
+### Phase 1 — Upload & preview
+
+1. Open `/` and the upload form should be visible.
+2. The page should describe the supported file types (`.xlsx`, `.csv`).
 3. Upload a normal `.xlsx` → confirm redirect to `/preview/{id}`.
 4. Upload a `.csv` → confirm preview generates correctly.
 5. Upload a `.pdf` → confirm `400` with a clear message.
@@ -711,7 +718,7 @@ The same ratio holds for table headers, card bodies, and badge text.
 10. Verify the preview table shows only the first 20 rows.
 11. Run `docker compose config` to validate the compose file.
 
-### Phase 2
+### Phase 2 — Dataset management
 
 1. Open `/manage`, select a dataset → confirm sheet dropdown populates.
 2. Select a sheet → confirm AG Grid preview loads.
@@ -727,7 +734,7 @@ The same ratio holds for table headers, card bodies, and badge text.
 10. Upload a workbook with mixed/invalid values — metadata should still be
     generated where possible.
 
-### Phase 3
+### Phase 3 — Pivot configuration
 
 1. Open `/pivot`, select a dataset → sheets load.
 2. Select a sheet → columns load (re-fetches when sheet changes).
@@ -750,7 +757,7 @@ The same ratio holds for table headers, card bodies, and badge text.
 15. Review the code — UI logic, validation logic and API logic are cleanly
     separated (see `pivot_validation_service.py` vs `pivot_service.py`).
 
-### Phase 4
+### Phase 4 — Pivot result UI
 
 1. Generate a pivot — AG Grid renders with all columns visible.
 2. Resize / reorder / sort / filter columns.
