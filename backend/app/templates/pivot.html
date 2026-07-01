@@ -255,6 +255,93 @@
       </div>
     </div>
 
+    {# ─────────────────────────────────────────────────────────────────────
+       PHASE 7 — Display Options card
+       Mirrors the Excel "Design" tab: Repeat Item Labels, number / date
+       formatting, conditional formatting, freeze / hide columns.
+       The actual grid behaviour is driven by pivot-display.js.
+       ──────────────────────────────────────────────────────────────────── #}
+    <div class="card border-0 shadow-sm mb-3" id="displayOptionsCard">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-palette me-2 text-primary"></i>Display Options</span>
+        <button id="resetDisplayOptionsBtn" class="btn btn-sm btn-link p-0" type="button"
+                title="Reset every display option to default">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+        </button>
+      </div>
+      <div class="card-body">
+
+        {# Repeat Item Labels (Tabular Form) #}
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" id="optRepeatItemLabels">
+          <label class="form-label small fw-bold" for="optRepeatItemLabels">
+            <i class="bi bi-list-ol me-1 text-primary"></i>Repeat Item Labels
+          </label>
+          <div class="small text-muted ms-4 ps-1">
+            Repeat grouped values on every row (Excel Tabular Form).
+          </div>
+        </div>
+
+        <hr class="my-2">
+
+        {# Number Format #}
+        <label class="form-label small fw-bold mb-1">
+          <i class="bi bi-123 me-1 text-primary"></i>Number Format
+        </label>
+        <div class="input-group input-group-sm mb-2">
+          <select id="numberFormatField" class="form-select" disabled>
+            <option value="">— field —</option>
+          </select>
+          <select id="numberFormatType" class="form-select" style="max-width: 130px">
+            <option value="integer">Integer</option>
+            <option value="decimal">Decimal</option>
+            <option value="currency">Currency</option>
+            <option value="percentage">Percentage</option>
+            <option value="thousands">Thousands</option>
+          </select>
+          <button id="addNumberFormatBtn" class="btn btn-outline-primary" type="button">
+            <i class="bi bi-plus"></i>
+          </button>
+        </div>
+        <div id="numberFormatList" class="mb-3"></div>
+
+        {# Date Format #}
+        <label class="form-label small fw-bold mb-1">
+          <i class="bi bi-calendar3 me-1 text-warning"></i>Date Format
+        </label>
+        <div class="input-group input-group-sm mb-2">
+          <select id="dateFormatField" class="form-select" disabled>
+            <option value="">— field —</option>
+          </select>
+          <select id="dateFormatType" class="form-select" style="max-width: 130px">
+            <option value="yyyy-mm-dd">yyyy-mm-dd</option>
+            <option value="dd-mm-yyyy">dd-mm-yyyy</option>
+            <option value="MMM yyyy">MMM yyyy</option>
+            <option value="MMMM yyyy">MMMM yyyy</option>
+            <option value="quarter">Quarter</option>
+            <option value="year">Year</option>
+          </select>
+          <button id="addDateFormatBtn" class="btn btn-outline-warning" type="button">
+            <i class="bi bi-plus"></i>
+          </button>
+        </div>
+        <div id="dateFormatList" class="mb-3"></div>
+
+        {# Conditional Formatting #}
+        <label class="form-label small fw-bold mb-1">
+          <i class="bi bi-lightning-charge-fill me-1 text-danger"></i>Conditional Formatting
+          <span class="badge bg-danger ms-1" id="conditionalFormatCount">0</span>
+        </label>
+        <button id="openConditionalFormatBtn" class="btn btn-outline-danger btn-sm w-100 mb-1" type="button"
+                title="Add / remove conditional formatting rules">
+          <i class="bi bi-brush me-1"></i>Manage Rules
+        </button>
+        <p class="small text-muted mb-0">
+          Highlight cells by value (Greater / Less / Equal / Top 10 / Bottom 10 / Duplicates).
+        </p>
+      </div>
+    </div>
+
   </div>
 
   {# ────────────────────────────────────────────────────────────────────────
@@ -286,6 +373,20 @@
             <span class="d-none d-lg-inline ms-1">Fullscreen</span>
           </button>
         </div>
+
+        {# Phase 7 — Expand / Collapse group controls (only meaningful
+           for multi-row-field pivots) #}
+        <div class="btn-group btn-group-sm me-2" role="group" aria-label="Row groups">
+          <button id="expandAllBtn"   class="btn btn-outline-secondary" type="button" disabled
+                  title="Expand all row groups">
+            <i class="bi bi-arrows-expand me-1"></i>Expand All
+          </button>
+          <button id="collapseAllBtn" class="btn btn-outline-secondary" type="button" disabled
+                  title="Collapse all row groups">
+            <i class="bi bi-arrows-collapse me-1"></i>Collapse All
+          </button>
+        </div>
+
         <button id="validateBtn" class="btn btn-outline-info btn-sm" disabled title="Validate configuration">
           <i class="bi bi-shield-check me-1"></i>Validate
         </button>
@@ -303,6 +404,89 @@
                 title="Send the selected pivot row(s) + drill-down attachment by email">
           <i class="bi bi-envelope me-1"></i>Send Email
         </button>
+
+        {# Phase 7 — grid-level actions: Columns, Auto-fit, Copy, Print #}
+        <div class="btn-group btn-group-sm ms-1" role="group" aria-label="Grid actions">
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                    id="pivotColumnsBtn" data-bs-toggle="dropdown" aria-expanded="false"
+                    title="Show / hide / freeze columns" disabled>
+              <i class="bi bi-columns me-1"></i>Columns
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" id="pivotColumnsMenu"
+                style="min-width: 240px; max-height: 360px; overflow-y: auto">
+              <li><h6 class="dropdown-header">Show / hide columns</h6></li>
+              <li><span class="dropdown-item text-muted small" id="pivotColumnsEmptyMsg">No columns yet</span></li>
+            </ul>
+          </div>
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                    id="pivotFreezeBtn" data-bs-toggle="dropdown" aria-expanded="false"
+                    title="Freeze columns to the left" disabled>
+              <i class="bi bi-pin-angle me-1"></i>Freeze
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" id="pivotFreezeMenu"
+                style="min-width: 220px; max-height: 360px; overflow-y: auto">
+              <li><h6 class="dropdown-header">Freeze columns</h6></li>
+              <li><span class="dropdown-item text-muted small" id="pivotFreezeEmptyMsg">No columns yet</span></li>
+            </ul>
+          </div>
+          <button id="resetColumnsBtn" class="btn btn-outline-secondary btn-sm" type="button"
+                  title="Show / unfreeze every column" disabled>
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+          </button>
+
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                    id="autoFitBtn" data-bs-toggle="dropdown" aria-expanded="false"
+                    title="Auto-fit column widths" disabled>
+              <i class="bi bi-arrows-angle-expand me-1"></i>Auto-fit
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="autoFitBtn">
+              <li>
+                <button id="autoFitColBtn" class="dropdown-item" type="button">
+                  <i class="bi bi-textarea-resize me-2"></i>Auto-fit current page
+                </button>
+              </li>
+              <li>
+                <button id="autoFitAllBtn" class="dropdown-item" type="button">
+                  <i class="bi bi-arrows-fullscreen me-2"></i>Auto-fit all columns
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                    id="copyBtn" data-bs-toggle="dropdown" aria-expanded="false"
+                    title="Copy to clipboard (paste into Excel)" disabled>
+              <i class="bi bi-clipboard me-1"></i>Copy
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="copyBtn">
+              <li>
+                <button id="copyCellsBtn" class="dropdown-item" type="button">
+                  <i class="bi bi-square me-2"></i>Selected cells
+                </button>
+              </li>
+              <li>
+                <button id="copyRowsBtn" class="dropdown-item" type="button">
+                  <i class="bi bi-list me-2"></i>Selected rows
+                </button>
+              </li>
+              <li>
+                <button id="copyWithHeadersBtn" class="dropdown-item" type="button">
+                  <i class="bi bi-list-columns me-2"></i>Selected rows with headers
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <button id="printBtn" class="btn btn-outline-secondary btn-sm" type="button"
+                  title="Print pivot (title + dataset + table + totals + date)" disabled>
+            <i class="bi bi-printer me-1"></i>Print
+          </button>
+        </div>
+
         <span id="loadingSpinner"
               class="spinner-border spinner-border-sm text-primary d-none ms-2"
               role="status"
@@ -633,6 +817,74 @@
 </div>{# /emailModal #}
 
 {# ────────────────────────────────────────────────────────────────────────
+   CONDITIONAL FORMATTING MODAL — Phase 7
+   Manage rules: pick a field, a rule type (gt / lt / eq / top10 /
+   bottom10 / duplicates), a value (where applicable), and a colour.
+   ──────────────────────────────────────────────────────────────────────── #}
+<div class="modal fade" id="conditionalFormatModal" tabindex="-1"
+     aria-labelledby="conditionalFormatModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="conditionalFormatModalLabel">
+          <i class="bi bi-lightning-charge-fill text-danger me-2"></i>Conditional Formatting
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted">
+          Add a rule, then click <strong>Generate Pivot</strong> to apply it.
+        </p>
+        <div class="row g-2 mb-3">
+          <div class="col-md-6">
+            <label class="form-label small fw-bold" for="cfFieldSelect">Field</label>
+            <select id="cfFieldSelect" class="form-select form-select-sm">
+              <option value="">— field —</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label small fw-bold" for="cfTypeSelect">Rule</label>
+            <select id="cfTypeSelect" class="form-select form-select-sm">
+              <option value="gt">Greater Than</option>
+              <option value="lt">Less Than</option>
+              <option value="eq">Equal To</option>
+              <option value="top10">Top 10</option>
+              <option value="bottom10">Bottom 10</option>
+              <option value="duplicates">Duplicate Values</option>
+            </select>
+          </div>
+          <div class="col-md-7" id="cfValueGroup">
+            <label class="form-label small fw-bold" for="cfValueInput">Value</label>
+            <input id="cfValueInput" type="text" class="form-control form-control-sm"
+                   placeholder="e.g. 1000">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label small fw-bold" for="cfColorInput">Highlight colour</label>
+            <input id="cfColorInput" type="color" class="form-control form-control-color form-control-sm"
+                   value="#ffd966" title="Background colour for matching cells">
+          </div>
+        </div>
+        <div class="d-flex justify-content-end mb-2">
+          <button id="cfAddBtn" class="btn btn-primary btn-sm" type="button">
+            <i class="bi bi-plus-lg me-1"></i>Add rule
+          </button>
+        </div>
+        <h6 class="small fw-bold mb-2">Active rules</h6>
+        <ul id="cfList" class="list-group"></ul>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Hidden print view — populated by PivotGrid.printView() just before
+   `window.print()` runs.  The print stylesheet in styles.css hides
+   every other element on the page. #}
+<div id="pivotPrintView" class="pivot-print-view" style="display:none"></div>
+
+{# ────────────────────────────────────────────────────────────────────────
    DRILL-DOWN MODAL — Phase 5
    Opened by the "Drill-down" button or by double-clicking a pivot row.
    Renders the raw records returned by POST /api/pivot/drilldown in a
@@ -775,6 +1027,7 @@
    controller's appState being available. #}
 <script src="/static/js/pivot-grid.js"></script>
 <script src="/static/js/pivot-export.js"></script>
+<script src="/static/js/pivot-display.js"></script>
 <script src="/static/js/pivot.js"></script>
 <script src="/static/js/drilldown-selection.js"></script>
 <script src="/static/js/drilldown-export.js"></script>

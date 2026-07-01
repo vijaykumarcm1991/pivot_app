@@ -1,0 +1,302 @@
+Everything implemented so far is working well.
+
+I'd like to spend this phase improving the Pivot experience so that it feels much closer to working with a Pivot Table in Microsoft Excel.
+
+Please do not redesign the application.
+
+Instead, enhance the existing implementation.
+
+--------------------------------------------------
+1. Expand / Collapse
+--------------------------------------------------
+
+Improve row grouping.
+
+Users should be able to:
+
+- expand one group
+- collapse one group
+- expand all
+- collapse all
+
+The expansion state should remain whenever possible.
+
+--------------------------------------------------
+2. Repeat Item Labels
+--------------------------------------------------
+
+Add an option:
+
+Repeat Item Labels
+
+When enabled,
+
+instead of showing blank grouped cells,
+
+repeat the grouped value on every row.
+
+Exactly like Excel's Tabular Form.
+
+--------------------------------------------------
+3. Subtotals
+--------------------------------------------------
+
+Implement real subtotal rows.
+
+Subtotals should appear after each group.
+
+Style subtotal rows differently.
+
+--------------------------------------------------
+4. Column Totals
+--------------------------------------------------
+
+Implement column totals.
+
+Display them separately from grand totals.
+
+--------------------------------------------------
+5. Conditional Formatting
+--------------------------------------------------
+
+Allow users to highlight values.
+
+Support:
+
+Greater Than
+
+Less Than
+
+Equal To
+
+Top 10
+
+Bottom 10
+
+Duplicate Values
+
+Use simple background colours.
+
+--------------------------------------------------
+6. Number Formatting
+--------------------------------------------------
+
+Allow formatting numeric columns.
+
+Support:
+
+General
+
+Integer
+
+Decimal
+
+Currency
+
+Percentage
+
+Thousands Separator
+
+--------------------------------------------------
+7. Date Formatting
+--------------------------------------------------
+
+Allow users to choose:
+
+yyyy-mm-dd
+
+dd-mm-yyyy
+
+MMM yyyy
+
+MMMM yyyy
+
+Quarter
+
+Year
+
+--------------------------------------------------
+8. Freeze Columns
+--------------------------------------------------
+
+Allow freezing:
+
+First Column
+
+First N Columns
+
+This is especially useful for wide pivot tables.
+
+--------------------------------------------------
+9. Column Visibility
+--------------------------------------------------
+
+Allow users to:
+
+Hide columns
+
+Show hidden columns
+
+Restore all columns
+
+--------------------------------------------------
+10. Auto Fit
+--------------------------------------------------
+
+Provide buttons for:
+
+Auto-fit selected column
+
+Auto-fit all columns
+
+--------------------------------------------------
+11. Copy
+--------------------------------------------------
+
+Support:
+
+Copy selected cells
+
+Copy selected rows
+
+Copy with headers
+
+Paste directly into Excel.
+
+--------------------------------------------------
+12. Print
+--------------------------------------------------
+
+Add a Print View.
+
+The printed version should include:
+
+title
+
+dataset
+
+pivot table
+
+totals
+
+date generated
+
+--------------------------------------------------
+13. Responsive Improvements
+--------------------------------------------------
+
+Improve usability on smaller screens.
+
+Better scrolling.
+
+Better spacing.
+
+Sticky headers.
+
+Sticky toolbar.
+
+--------------------------------------------------
+14. Performance Improvements
+--------------------------------------------------
+
+Avoid unnecessary grid refreshes.
+
+Reuse AG Grid APIs whenever possible.
+
+Large pivot tables should remain responsive.
+
+--------------------------------------------------
+15. Polish
+--------------------------------------------------
+
+Improve overall appearance.
+
+Better colours.
+
+Consistent spacing.
+
+Cleaner typography.
+
+More polished toolbar.
+
+Professional internal tool appearance.
+
+--------------------------------------------------
+
+When finished, provide:
+
+- updated folder structure
+
+- explanation of new AG Grid features used
+
+- explanation of subtotal implementation
+
+- explanation of conditional formatting implementation
+
+- anything that should be reviewed before the final production hardening phase.
+
+Test Cases:
+
+1. Expand one group.
+Expected:
+Only that group expands.
+
+2. Collapse one group.
+Expected:
+Only that group collapses.
+
+3. Expand All.
+Expected:
+Every group expands.
+
+4. Repeat Item Labels.
+Expected:
+Grouped values repeat on every row.
+
+5. Verify subtotals.
+Expected:
+Subtotal rows appear correctly.
+
+6. Verify column totals.
+Expected:
+Totals display correctly.
+
+7. Apply conditional formatting.
+Expected:
+Matching cells are highlighted.
+
+8. Apply number formatting.
+Expected:
+Numbers display correctly.
+
+9. Change date format.
+Expected:
+Dates update immediately.
+
+10. Freeze first column.
+Expected:
+Column remains visible while scrolling.
+
+11. Hide and restore columns.
+Expected:
+Grid updates correctly.
+
+12. Auto-fit columns.
+Expected:
+Widths adjust automatically.
+
+13. Copy rows.
+Expected:
+Can paste directly into Excel.
+
+14. Print preview.
+Expected:
+Layout is clean and readable.
+
+15. Large dataset.
+Expected:
+Performance remains responsive.
+
+16. Review UI.
+Expected:
+The Pivot page feels polished and close to an Excel Pivot experience.

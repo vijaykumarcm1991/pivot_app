@@ -766,3 +766,172 @@ body.pivot-fullscreen-active {
 #historyTableWrap td .small.text-muted[title] {
   cursor: help;
 }
+
+
+/* ==========================================================================
+   Phase 7 — Excel-like enhancements
+   --------------------------------------------------------------------------
+   New visual elements:
+     - subtotal / column-total / grand-total row classes
+     - expand/collapse chevron
+     - conditional-formatting cell highlight
+     - print view (clean, professional layout)
+   ========================================================================== */
+
+/* ── Subtotal rows — Excel-style light grey background, bold text ─── */
+.ag-theme-alpine .pivot-subtotal-row,
+.ag-theme-alpine-dark .pivot-subtotal-row {
+  background-color: rgba(108, 117, 125, 0.10) !important;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid rgba(108, 117, 125, 0.25);
+}
+[data-bs-theme="dark"] .ag-theme-alpine-dark .pivot-subtotal-row {
+  background-color: rgba(108, 117, 125, 0.20) !important;
+  border-top-color: rgba(108, 117, 125, 0.40);
+}
+.ag-theme-alpine .pivot-subtotal-row .pivot-number-cell,
+.ag-theme-alpine-dark .pivot-subtotal-row .pivot-number-cell {
+  font-weight: 700;
+}
+
+/* Subtotal cells — slightly different background to highlight the
+   aggregated value column. */
+.ag-theme-alpine .pivot-subtotal-cell,
+.ag-theme-alpine-dark .pivot-subtotal-cell {
+  font-weight: 700;
+  background-color: rgba(108, 117, 125, 0.05) !important;
+}
+
+/* ── Column-total row — pinned beneath the grand total, distinct ─── */
+.ag-theme-alpine .pivot-column-total-row,
+.ag-theme-alpine-dark .pivot-column-total-row {
+  background-color: rgba(255, 193, 7, 0.10) !important;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid rgba(255, 193, 7, 0.4);
+  border-bottom: 2px solid rgba(255, 193, 7, 0.5);
+}
+[data-bs-theme="dark"] .ag-theme-alpine-dark .pivot-column-total-row {
+  background-color: rgba(255, 193, 7, 0.18) !important;
+  border-top-color: rgba(255, 193, 7, 0.6);
+  border-bottom-color: rgba(255, 193, 7, 0.7);
+}
+.ag-theme-alpine .pivot-column-total-row .pivot-number-cell,
+.ag-theme-alpine-dark .pivot-column-total-row .pivot-number-cell {
+  font-weight: 700;
+}
+
+/* ── Row-group collapsed — dim the row so the user knows the children
+   are hidden.  The summary (subtotal) is still rendered. ─── */
+.ag-theme-alpine .pivot-row-group-collapsed,
+.ag-theme-alpine-dark .pivot-row-group-collapsed {
+  opacity: 0.55;
+}
+
+/* ── Expand / collapse chevron cell ─────────────────────────────── */
+.ag-theme-alpine .pivot-toggle-cell,
+.ag-theme-alpine-dark .pivot-toggle-cell {
+  cursor: pointer;
+  user-select: none;
+  text-align: center;
+  padding: 0;
+  font-size: 0.85rem;
+  color: var(--bs-secondary-color);
+}
+.ag-theme-alpine .pivot-toggle-cell:hover,
+.ag-theme-alpine-dark .pivot-toggle-cell:hover {
+  color: var(--bs-primary);
+  background-color: rgba(13, 110, 253, 0.10);
+}
+.pivot-toggle-chevron {
+  display: inline-block;
+  font-weight: 700;
+}
+
+/* ── Conditional formatting — generic highlight class ─────────── */
+/* We use inline `background` colour from the rule definition, but
+   add a small padding to make it visually pop. The base class is
+   `pivot-cf-cell` so the user can override it with a stylesheet
+   if they want. */
+[class*="cf_gt_"], [class*="cf_lt_"], [class*="cf_eq_"],
+[class*="cf_top10_"], [class*="cf_bottom10_"], [class*="cf_duplicates_"] {
+  font-weight: 600;
+}
+
+/* ── Display Options card — keep dropdowns compact on narrow viewports */
+#displayOptionsCard .form-select,
+#displayOptionsCard .form-control {
+  font-size: 0.85rem;
+}
+#displayOptionsCard .form-check-label {
+  font-size: 0.85rem;
+}
+
+/* ── Conditional-formatting modal list ─────────────────────────── */
+#cfList .list-group-item {
+  font-size: 0.85rem;
+}
+#cfList .badge {
+  font-size: 0.7rem;
+  min-width: 70px;
+  display: inline-block;
+  text-align: center;
+}
+
+/* ── Toolbar polish — keep the new Phase 7 buttons visually grouped */
+#actionsCard .dropdown-toggle {
+  display: inline-flex;
+  align-items: center;
+}
+#actionsCard .btn-group[aria-label="Row groups"] .btn,
+#actionsCard .btn-group[aria-label="Grid actions"] .btn {
+  white-space: nowrap;
+}
+
+/* ── Print view — clean, professional, Excel-like ────────────── */
+.pivot-print-view {
+  display: none;
+}
+@media print {
+  body > *:not(.pivot-print-view) { display: none !important; }
+  .pivot-print-view {
+    display: block !important;
+    padding: 1rem;
+    color: #000;
+    background: #fff;
+  }
+  .pivot-print-header h1 {
+    font-size: 1.4rem;
+    margin: 0 0 0.25rem 0;
+  }
+  .pivot-print-header p {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.85rem;
+    color: #555;
+  }
+  .pivot-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+  }
+  .pivot-print-table th,
+  .pivot-print-table td {
+    border: 1px solid #999;
+    padding: 4px 8px;
+    text-align: left;
+  }
+  .pivot-print-table thead th {
+    background: #f0f0f0;
+    font-weight: 700;
+  }
+  .pivot-print-table .pivot-subtotal-row,
+  .pivot-print-table .pivot-column-total-row {
+    background: #f5f5f5;
+    font-weight: 700;
+  }
+  .pivot-print-table .pivot-grand-total-row {
+    background: #e6f4ea;
+    font-weight: 700;
+  }
+}

@@ -49,10 +49,21 @@
     dateGrouping:  {},     // {field: "month"}
     sorting:       {},     // {field: "asc" | "desc"}
     totals: {
-      showGrandTotals:  true,
-      showRowTotals:    true,
-      showColumnTotals: false,
-      showSubtotals:    false,
+      showGrandTotals:    true,
+      showRowTotals:      true,
+      showColumnTotals:   false,
+      showSubtotals:      false,
+      repeatItemLabels:   false,   // Phase 7
+    },
+    // Phase 7 — display options.  Mirror of window.PivotDisplay.getState()
+    // at the moment we build the payload, then we forward the values to
+    // the backend as `displayOptions`.
+    displayOptions: {
+      numberFormat:        {},   // { field: "integer" | ... }
+      dateFormat:          {},   // { field: "yyyy-mm-dd" | ... }
+      conditionalFormats:  [],   // [{ field, type, value, background }]
+      frozenColumns:       [],   // [field, ...]
+      hiddenColumns:       [],   // [field, ...]
     },
     layout: "tabular",
     lastResponse:  null,   // last PivotResponse (for export)
@@ -147,6 +158,22 @@
   const debugCard         = document.getElementById("debugCard");
   const requestJson       = document.getElementById("requestJson");
   const responseJson      = document.getElementById("responseJson");
+
+  // Phase 7 — toolbar buttons (right panel)
+  const expandAllBtn        = document.getElementById("expandAllBtn");
+  const collapseAllBtn      = document.getElementById("collapseAllBtn");
+  const pivotColumnsBtn     = document.getElementById("pivotColumnsBtn");
+  const pivotColumnsMenu    = document.getElementById("pivotColumnsMenu");
+  const pivotColumnsEmptyMsg= document.getElementById("pivotColumnsEmptyMsg");
+  const pivotFreezeBtn      = document.getElementById("pivotFreezeBtn");
+  const pivotFreezeMenu     = document.getElementById("pivotFreezeMenu");
+  const pivotFreezeEmptyMsg = document.getElementById("pivotFreezeEmptyMsg");
+  const resetColumnsBtn     = document.getElementById("resetColumnsBtn");
+  const printBtn            = document.getElementById("printBtn");
+  const resetDisplayOptionsBtn = document.getElementById("resetDisplayOptionsBtn");
+
+  // Phase 7 — totals + display-options checkboxes
+  const optRepeatItemLabels = document.getElementById("optRepeatItemLabels");
 
   // Filter modal (lazy — create on first use, not at module load time).
   const filterModalEl     = document.getElementById("filterModal");
@@ -650,26 +677,73 @@
   layoutRadios.forEach(r => r.addEventListener("change", e => {
     appState.layout = e.target.value;
   }));
-  optGrandTotals .addEventListener("change", () => appState.totals.showGrandTotals  = optGrandTotals.checked);
-  optRowTotals   .addEventListener("change", () => appState.totals.showRowTotals    = optRowTotals.checked);
-  optColumnTotals.addEventListener("change", () => appState.totals.showColumnTotals = optColumnTotals.checked);
-  optSubtotals   .addEventListener("change", () => appState.totals.showSubtotals    = optSubtotals.checked);
+  optGrandTotals    .addEventListener("change", () => appState.totals.showGrandTotals  = optGrandTotals.checked);
+  optRowTotals      .addEventListener("change", () => appState.totals.showRowTotals    = optRowTotals.checked);
+  optColumnTotals   .addEventListener("change", () => appState.totals.showColumnTotals = optColumnTotals.checked);
+  optSubtotals      .addEventListener("change", () => appState.totals.showSubtotals    = optSubtotals.checked);
+  if (optRepeatItemLabels) {
+    optRepeatItemLabels.addEventListener("change", () => appState.totals.repeatItemLabels = optRepeatItemLabels.checked);
+  }
+
+  // Phase 7 — Read the current display options from PivotDisplay
+  // and copy them into appState so the next payload includes them.
+  function syncDisplayOptionsFromUI() {
+    if (!window.PivotDisplay) return;
+    const s = window.PivotDisplay.getState();
+    appState.displayOptions = {
+      numberFormat:       s.numberFormat || {},
+      dateFormat:         s.dateFormat   || {},
+      conditionalFormats: s.conditional  || [],
+      frozenColumns:      s.frozen       || [],
+      hiddenColumns:      s.hidden       || [],
+    };
+  }
+  // Trigger a sync on every change to the display options UI.  We
+  // can't listen to every internal widget, so we listen to `change`
+  // events on the parent card and to clicks on any of its buttons.
+  const displayCard = document.getElementById("displayOptionsCard");
+  if (displayCard) {
+    displayCard.addEventListener("change", syncDisplayOptionsFromUI);
+    displayCard.addEventListener("click", (e) => {
+      // The format list has remove buttons — debounce so we don't
+      // resync 30 times when a user is clicking through a list.
+      setTimeout(syncDisplayOptionsFromUI, 0);
+    });
+  }
+  if (resetDisplayOptionsBtn) {
+    resetDisplayOptionsBtn.addEventListener("click", () => {
+      if (window.PivotDisplay) window.PivotDisplay.reset();
+      syncDisplayOptionsFromUI();
+    });
+  }
 
   // ════════════════════════════════════════════════════════════════════════
-  // BUILD PAYLOAD  (Phase 3 contract — unchanged)
+  // BUILD PAYLOAD  (Phase 3 + 7 contract)
   // ════════════════════════════════════════════════════════════════════════
   function buildPayload() {
+    // Phase 7: re-read the display-options state at the moment the
+    // payload is built (rather than relying on appState being kept in
+    // sync, which is brittle if the user interacts with a widget
+    // before the change event fires).
+    syncDisplayOptionsFromUI();
     return {
-      datasetId:    appState.datasetId,
-      sheetName:    appState.sheetName,
-      rows:         [...appState.rows],
-      columns:      [...appState.columnsGroup],
-      values:       appState.values.map(v => ({ ...v })),
-      filters:      { ...appState.filters },
-      dateGrouping: { ...appState.dateGrouping },
-      sorting:      { ...appState.sorting },
-      totals:       { ...appState.totals },
-      layout:       appState.layout,
+      datasetId:      appState.datasetId,
+      sheetName:      appState.sheetName,
+      rows:           [...appState.rows],
+      columns:        [...appState.columnsGroup],
+      values:         appState.values.map(v => ({ ...v })),
+      filters:        { ...appState.filters },
+      dateGrouping:   { ...appState.dateGrouping },
+      sorting:        { ...appState.sorting },
+      totals:         { ...appState.totals },
+      displayOptions: { ...appState.displayOptions,
+                        numberFormat:       { ...(appState.displayOptions.numberFormat       || {}) },
+                        dateFormat:         { ...(appState.displayOptions.dateFormat         || {}) },
+                        conditionalFormats: [...(appState.displayOptions.conditionalFormats || [])],
+                        frozenColumns:      [...(appState.displayOptions.frozenColumns      || [])],
+                        hiddenColumns:      [...(appState.displayOptions.hiddenColumns      || [])],
+                      },
+      layout:         appState.layout,
     };
   }
 
@@ -678,7 +752,13 @@
   // appState at call time, but a plain value is also accepted.
   window.PivotAppState = () => {
     if (!appState.datasetId || !appState.sheetName) return null;
-    return buildPayload();
+    const payload = buildPayload();
+    // Phase 7 — also expose the full dataset column list so the
+    // display-options dropdowns (number / date format, freeze, hide)
+    // can show every field, not just the ones currently in the
+    // pivot definition.
+    payload.columns = [...(appState.columns || []).map(c => c.name)];
+    return payload;
   };
 
   // ════════════════════════════════════════════════════════════════════════
@@ -869,6 +949,26 @@
     if (exportBtn)    exportBtn.disabled    = false;
     if (drilldownBtn) drilldownBtn.disabled = false;
     if (emailBtn)     emailBtn.disabled     = false;
+
+    // 8. Phase 7 — enable expand/collapse, columns, freeze, auto-fit, copy,
+    //    print, and the conditional-formatting button.  We only enable
+    //    Expand/Collapse when the response has a row hierarchy (more
+    //    than one row field), otherwise the buttons would be no-ops.
+    const hasMultiRows = Array.isArray(meta.rows) && meta.rows.length > 1;
+    if (expandAllBtn)    expandAllBtn.disabled    = !hasMultiRows;
+    if (collapseAllBtn)  collapseAllBtn.disabled  = !hasMultiRows;
+    if (pivotColumnsBtn) pivotColumnsBtn.disabled = !dataRows.length;
+    if (pivotFreezeBtn)  pivotFreezeBtn.disabled  = !dataRows.length;
+    if (resetColumnsBtn) resetColumnsBtn.disabled = !dataRows.length;
+    if (printBtn)        printBtn.disabled        = !dataRows.length;
+    // The auto-fit and copy dropdowns are always enabled while a
+    // result is on screen.
+    const autoFitBtn = document.getElementById("autoFitBtn");
+    if (autoFitBtn) autoFitBtn.disabled = !dataRows.length;
+    const copyBtn = document.getElementById("copyBtn");
+    if (copyBtn) copyBtn.disabled = !dataRows.length;
+    rebuildColumnsMenu(data);
+    rebuildFreezeMenu(data);
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -1040,6 +1140,17 @@
     if (emailBtn)      emailBtn.disabled = true;
     if (metaStats)     metaStats.innerHTML = "";
     if (window.PivotGrid) window.PivotGrid.clear();
+    // Phase 7 — disable the new toolbar buttons
+    if (expandAllBtn)    expandAllBtn.disabled    = true;
+    if (collapseAllBtn)  collapseAllBtn.disabled  = true;
+    if (pivotColumnsBtn) pivotColumnsBtn.disabled = true;
+    if (pivotFreezeBtn)  pivotFreezeBtn.disabled  = true;
+    if (resetColumnsBtn) resetColumnsBtn.disabled = true;
+    if (printBtn)        printBtn.disabled        = true;
+    const autoFitBtn = document.getElementById("autoFitBtn");
+    if (autoFitBtn) autoFitBtn.disabled = true;
+    const copyBtn = document.getElementById("copyBtn");
+    if (copyBtn) copyBtn.disabled = true;
   }
 
   function showEmptyState() {
@@ -1158,6 +1269,189 @@
       setFullscreen(false);
     }
   });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // PHASE 7 — Expand / Collapse, Columns menu, Freeze menu, Reset
+  // ════════════════════════════════════════════════════════════════════════
+
+  if (expandAllBtn) {
+    expandAllBtn.addEventListener("click", () => {
+      if (window.PivotGrid) window.PivotGrid.expandAll();
+    });
+  }
+  if (collapseAllBtn) {
+    collapseAllBtn.addEventListener("click", () => {
+      if (window.PivotGrid) window.PivotGrid.collapseAll();
+    });
+  }
+
+  /**
+   * Build the "Columns" dropdown — show / hide each column.
+   * Mirrors the same pattern as the drilldown module's column menu
+   * (Phase 5) but lives in the page toolbar.
+   */
+  function rebuildColumnsMenu(data) {
+    if (!pivotColumnsMenu) return;
+    const cols = (data && data.columns) || [];
+    pivotColumnsMenu.innerHTML = "";
+
+    if (!cols.length) {
+      pivotColumnsMenu.innerHTML = `
+        <li><h6 class="dropdown-header">Show / hide columns</h6></li>
+        <li><span class="dropdown-item text-muted small" id="pivotColumnsEmptyMsg">No columns yet</span></li>
+      `;
+      return;
+    }
+
+    pivotColumnsMenu.insertAdjacentHTML("beforeend", `
+      <li><h6 class="dropdown-header d-flex justify-content-between align-items-center">
+        <span>Show / hide columns</span>
+        <span>
+          <button type="button" class="btn btn-link btn-sm p-0 me-2" data-pv-cols-action="all">All</button>
+          <button type="button" class="btn btn-link btn-sm p-0"    data-pv-cols-action="none">None</button>
+        </span>
+      </h6></li>
+      <li><hr class="dropdown-divider"></li>
+    `);
+    cols.forEach(col => {
+      const li = document.createElement("li");
+      li.innerHTML = `
+        <label class="dropdown-item d-flex align-items-center" style="cursor: pointer">
+          <input class="form-check-input me-2" type="checkbox" data-pv-col-id="${escHtml(col)}" checked>
+          <span class="text-truncate" title="${escHtml(col)}">${escHtml(col)}</span>
+        </label>
+      `;
+      pivotColumnsMenu.appendChild(li);
+    });
+
+    // Per-column show/hide
+    pivotColumnsMenu.querySelectorAll("input[type=checkbox][data-pv-col-id]").forEach(cb => {
+      cb.addEventListener("change", () => {
+        const colId = cb.getAttribute("data-pv-col-id");
+        if (window.PivotGrid) {
+          const grid = window.PivotGrid;
+          if (grid && typeof grid.setColumnsVisible === "function") {
+            try { grid.setColumnsVisible([colId], cb.checked); } catch (_) { /* ignore */ }
+          }
+        }
+        // Mirror in appState so the next payload picks it up.
+        const set = new Set(appState.displayOptions.hiddenColumns);
+        if (cb.checked) set.delete(colId); else set.add(colId);
+        appState.displayOptions.hiddenColumns = Array.from(set);
+      });
+    });
+    // All / None shortcuts
+    pivotColumnsMenu.querySelectorAll("[data-pv-cols-action]").forEach(btn => {
+      btn.addEventListener("click", e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const action = btn.getAttribute("data-pv-cols-action");
+        const visible = action === "all";
+        const grid = window.PivotGrid;
+        if (grid && typeof grid.setColumnsVisible === "function") {
+          try { grid.setColumnsVisible(cols, visible); } catch (_) { /* ignore */ }
+        }
+        pivotColumnsMenu.querySelectorAll("input[type=checkbox][data-pv-col-id]")
+          .forEach(c => { c.checked = visible; });
+        if (visible) appState.displayOptions.hiddenColumns = [];
+        else        appState.displayOptions.hiddenColumns = cols.slice();
+      });
+    });
+  }
+
+  /**
+   * Build the "Freeze" dropdown — pin a column to the left, or unpin
+   * it.  Matches Excel's "Freeze First Column" / "Freeze Panes".
+   */
+  function rebuildFreezeMenu(data) {
+    if (!pivotFreezeMenu) return;
+    const cols = (data && data.columns) || [];
+    pivotFreezeMenu.innerHTML = "";
+
+    if (!cols.length) {
+      pivotFreezeMenu.innerHTML = `
+        <li><h6 class="dropdown-header">Freeze columns</h6></li>
+        <li><span class="dropdown-item text-muted small" id="pivotFreezeEmptyMsg">No columns yet</span></li>
+      `;
+      return;
+    }
+
+    pivotFreezeMenu.insertAdjacentHTML("beforeend", `
+      <li><h6 class="dropdown-header d-flex justify-content-between align-items-center">
+        <span>Freeze columns to the left</span>
+        <button type="button" class="btn btn-link btn-sm p-0" data-pv-freeze-action="none">Unfreeze all</button>
+      </h6></li>
+      <li><hr class="dropdown-divider"></li>
+    `);
+    cols.forEach(col => {
+      const li = document.createElement("li");
+      li.innerHTML = `
+        <label class="dropdown-item d-flex align-items-center" style="cursor: pointer">
+          <input class="form-check-input me-2" type="checkbox" data-pv-freeze-id="${escHtml(col)}">
+          <span class="text-truncate" title="${escHtml(col)}">${escHtml(col)}</span>
+        </label>
+      `;
+      pivotFreezeMenu.appendChild(li);
+    });
+
+    pivotFreezeMenu.querySelectorAll("input[type=checkbox][data-pv-freeze-id]").forEach(cb => {
+      cb.addEventListener("change", () => {
+        const colId = cb.getAttribute("data-pv-freeze-id");
+        if (window.PivotGrid) {
+          try {
+            if (typeof window.PivotGrid.setColumnPinned === "function") {
+              window.PivotGrid.setColumnPinned(colId, cb.checked ? "left" : null);
+            }
+          } catch (_) { /* ignore */ }
+        }
+        const set = new Set(appState.displayOptions.frozenColumns);
+        if (cb.checked) set.add(colId); else set.delete(colId);
+        appState.displayOptions.frozenColumns = Array.from(set);
+      });
+    });
+    pivotFreezeMenu.querySelectorAll("[data-pv-freeze-action]").forEach(btn => {
+      btn.addEventListener("click", e => {
+        e.preventDefault();
+        e.stopPropagation();
+        const grid = window.PivotGrid;
+        if (grid && typeof grid.setColumnPinned === "function") {
+          cols.forEach(c => {
+            try { grid.setColumnPinned(c, null); } catch (_) { /* ignore */ }
+          });
+        }
+        pivotFreezeMenu.querySelectorAll("input[type=checkbox][data-pv-freeze-id]")
+          .forEach(c => { c.checked = false; });
+        appState.displayOptions.frozenColumns = [];
+      });
+    });
+  }
+
+  if (resetColumnsBtn) {
+    resetColumnsBtn.addEventListener("click", () => {
+      const data = (appState && appState.lastResponse) || null;
+      if (!data) return;
+      const cols = data.columns || [];
+      if (window.PivotGrid) {
+        try {
+          if (typeof window.PivotGrid.setColumnsVisible === "function") {
+            window.PivotGrid.setColumnsVisible(cols, true);
+          }
+          if (typeof window.PivotGrid.setColumnPinned === "function") {
+            cols.forEach(c => {
+              try { window.PivotGrid.setColumnPinned(c, null); } catch (_) { /* ignore */ }
+            });
+          }
+        } catch (_) { /* ignore */ }
+      }
+      appState.displayOptions.hiddenColumns = [];
+      appState.displayOptions.frozenColumns = [];
+      rebuildColumnsMenu(data);
+      rebuildFreezeMenu(data);
+    });
+  }
+
+  // Initialize the PivotDisplay module once the DOM is ready.
+  if (window.PivotDisplay) window.PivotDisplay.init();
 
   // ════════════════════════════════════════════════════════════════════════
   // UTILITIES

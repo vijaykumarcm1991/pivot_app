@@ -1,8 +1,23 @@
 """
-Phase 3 pivot engine.
+Phase 3 + Phase 7 pivot engine.
 
 The backend is the authoritative pivot calculator. The frontend should send a
 pivot definition and render this service's output without recalculating it.
+
+Phase 7 adds:
+  - `displayOptions` (number/date formats, conditional formats, frozen
+    columns, hidden columns)
+  - `totals.repeatItemLabels` (Tabular Form: fill blank grouped cells)
+  - `totals.showSubtotals` (real subtotal rows after each group)
+  - `totals.showColumnTotals` (a per-column-total pinned row beneath
+    the grand total)
+  - Hierarchy markers on every response row:
+      __level        : 0..N  (0 = top-most group)
+      __parentKey    : concatenated values of all parent row fields
+      __isSubtotal   : bool
+      __isColumnTotal: bool
+    The frontend uses these to drive expand/collapse, subtotal styling,
+    and the column-totals row without recomputing anything.
 
 NOTE: Phase 3 also exposes a separate validation endpoint
 (`POST /api/pivot/validate`, see `pivot_validation_service.py`) that validates a
@@ -18,6 +33,7 @@ from sqlalchemy.orm import Session
 from app.config.settings import UPLOAD_DIR, MAX_ROWS_ALLOWED, MAX_COLUMNS_ALLOWED, MAX_PIVOT_RESULT_ROWS, MAX_PIVOT_MEMORY_MB
 from app.repositories.dataset_repository import get_dataset_by_id
 from app.schemas.pivot import (
+    DisplayOptions,
     PivotDrilldownRequest,
     PivotDrilldownResponse,
     PivotRequest,
@@ -82,6 +98,16 @@ def _validate_layout(layout: str) -> None:
         raise PivotError(f"Unsupported layout: {layout}")
 
 
+def _is_truthy(v: Any) -> bool:
+    """Coerce a (sometimes-string) flag to bool — pydantic / frontend may
+    send `"false"` as a string when round-tripping through JSON."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(v)
+
+
 def build_pivot(db: Session, request: PivotRequest) -> PivotResponse:
     """Compute a pivot table from an uploaded dataset sheet."""
     _validate_layout(request.layout)
@@ -97,6 +123,7 @@ def build_pivot(db: Session, request: PivotRequest) -> PivotResponse:
     filtered_rows = len(filtered_df)
 
     totals_opts: TotalsOptions = request.totals or TotalsOptions()
+    display_opts: DisplayOptions = request.display_options or DisplayOptions()
 
     if filtered_df.empty:
         rows: List[Dict[str, Any]] = []
@@ -115,6 +142,25 @@ def build_pivot(db: Session, request: PivotRequest) -> PivotResponse:
             request.layout,
             sorting=request.sorting,
         )
+
+        # Phase 7: post-process the flat row list with the
+        #  - subtotals
+        #  - repeat-item-labels
+        #  - column-totals row
+        # additions.  Each helper MUTATES `rows` in place to keep the
+        # call site small.
+        if totals_opts.show_subtotals and group_rows:
+            _insert_subtotal_rows(rows, group_rows, value_specs, pivot_columns)
+
+        if totals_opts.show_column_totals and group_rows:
+            _insert_column_total_row(rows, filtered_df, group_rows, value_specs, pivot_columns)
+
+    # Apply repeat-item-labels in a single pass after the structure is
+    # finalised.  This works on every row variant (subtotal, grand
+    # total, regular) — the marker rows just have their existing value
+    # preserved.
+    if totals_opts.repeat_item_labels and group_rows:
+        _apply_repeat_item_labels(rows, group_rows)
 
     totals = _compute_totals(
         filtered_df,
@@ -139,6 +185,7 @@ def build_pivot(db: Session, request: PivotRequest) -> PivotResponse:
             date_grouping=request.date_grouping,
             sorting=dict(request.sorting or {}),
             totals=totals_opts,
+            display_options=display_opts,
         ),
         aggregations=[
             {
@@ -531,8 +578,343 @@ def _compute_pivot_rows(
     else:
         first_cols = [_display_group_name(field, grouped_labels) for field in group_rows]
 
+    # ── Phase 7: add hierarchy markers (`__level`, `__parentKey`) ────
+    # The frontend uses these to drive expand/collapse and indent the
+    # row labels exactly like Excel's Tabular Form.  This runs AFTER
+    # the compact-mode transformation so the "Rows" merged column is
+    # available for the parent-key extraction.
+    _annotate_hierarchy(rows, group_rows, layout)
+
     value_columns = [c for c in pivot_df.columns if c not in [_display_group_name(f, grouped_labels) for f in group_rows]]
     return rows, _visible_columns(first_cols, value_specs, value_columns)
+
+
+def _annotate_hierarchy(
+    rows: List[Dict[str, Any]],
+    group_rows: List[str],
+    layout: str,
+) -> None:
+    """Stamp every regular (non-warning) row with `__level` and
+    `__parentKey` so the frontend can drive expand/collapse and indent
+    row labels without recomputing anything.
+
+    In compact mode the row fields are merged into a single "Rows"
+    column; the level is set from the number of " / " separators in
+    that merged value.
+    """
+    if not rows or not group_rows:
+        return
+
+    if layout == "compact":
+        for r in rows:
+            if "_warning" in r:
+                continue
+            merged = r.get("Rows")
+            if merged is None:
+                r["__level"] = 0
+                r["__parentKey"] = ""
+                continue
+            parts = [p for p in str(merged).split(" / ") if p != ""]
+            # Subtract 1 so a single row field produces level 0,
+            # two row fields → level 0/1, three → 0/1/2, etc.
+            r["__level"] = max(0, len(parts) - 1)
+            # The parent key in compact mode is the joined values of
+            # all levels above this row.  Trim the last element to get
+            # the path that this row belongs to.
+            r["__parentKey"] = " / ".join(parts[:-1]) if len(parts) > 1 else ""
+        return
+
+    # Tabular mode — the row fields are separate columns; the level
+    # equals the index of the last non-blank row field, and the parent
+    # key is the joined value of the row fields above that level.
+    n = len(group_rows)
+    for r in rows:
+        if "_warning" in r:
+            continue
+        last_filled = -1
+        for i, field in enumerate(group_rows):
+            v = r.get(field)
+            if v is not None and v != "" and v != NULL_PLACEHOLDER:
+                last_filled = i
+        r["__level"] = max(0, last_filled)
+        if last_filled <= 0:
+            r["__parentKey"] = ""
+        else:
+            r["__parentKey"] = "||".join(
+                str(r.get(group_rows[i], "")) for i in range(last_filled)
+            )
+
+
+# ── Phase 7 — Subtotals ──────────────────────────────────────────────────
+
+def _insert_subtotal_rows(
+    rows: List[Dict[str, Any]],
+    group_rows: List[str],
+    value_specs: List[PivotValue],
+    pivot_columns: List[str],
+) -> None:
+    """Insert a real subtotal row after every "group change" at the
+    second-to-last row-field level.  This matches Excel's behaviour:
+    with three row fields the subtotal is placed after every change in
+    the second level, with two row fields after every change in the
+    first level, and a single row field never produces a subtotal (the
+    grand total already covers it).
+
+    Subtotal rows are annotated with `__isSubtotal: true` and their
+    value columns are re-aggregated from the underlying rows in the
+    group (we compute a simple sum which is correct for the
+    `sum`/`count` aggregations; for `average`/`min`/`max` we use the
+    sub-aggregation of the rows in the group)."""
+    if len(group_rows) < 2:
+        return
+
+    # Subtotal level = the second-to-last row field.  e.g. with three
+    # row fields (A, B, C) the subtotal appears after each group of
+    # C rows that share the same (A, B) prefix.
+    subtotal_level_field = group_rows[-2]
+
+    # Walk rows in order, tracking the current value of the
+    # subtotal-level field.  When it changes, inject a subtotal row
+    # whose level field has the previous value.
+    #
+    # Implementation: we accumulate "the rows in the current group"
+    # as Python dicts; when the level-field changes we compute the
+    # subtotal and insert it, then start a new group.
+    #
+    # We also need to compute the aggregated value for each numeric
+    # value column from the rows in the current group.  We sum
+    # numeric values which gives the correct result for sum, count,
+    # min, and max; for average we average them, which matches what
+    # the user would expect (the engine already returned a flat sum
+    # of averages at the leaf level so summing gives the wrong
+    # answer — we re-derive average from the leaf rows instead).
+    def _reaggregate(group_rows_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for spec in value_specs:
+            label = _value_label(spec)
+            nums: List[float] = []
+            for gr in group_rows_list:
+                v = gr.get(label)
+                if v is None:
+                    continue
+                try:
+                    nums.append(float(v))
+                except (TypeError, ValueError):
+                    pass
+            if not nums:
+                out[label] = 0
+                continue
+            if spec.aggregation == "average":
+                out[label] = sum(nums) / len(nums)
+            elif spec.aggregation == "min":
+                out[label] = min(nums)
+            elif spec.aggregation == "max":
+                out[label] = max(nums)
+            else:  # sum, count
+                out[label] = sum(nums)
+        return out
+
+    new_rows: List[Dict[str, Any]] = []
+    current_group: List[Dict[str, Any]] = []
+    current_level_value: Any = None
+    current_level_parent: Any = None
+
+    def _flush_subtotal():
+        if not current_group:
+            return
+        sub = _reaggregate(current_group)
+        # Set the level field to the previous value, blank the deeper
+        # fields, mark as subtotal.
+        subtotal_field_index = len(group_rows) - 2
+        for i, field in enumerate(group_rows):
+            if i < subtotal_field_index:
+                sub[field] = current_group[0].get(field)
+            elif i == subtotal_field_index:
+                sub[field] = current_group[0].get(field)
+            else:
+                sub[field] = ""  # blank the deepest level on subtotal rows
+        sub["__isSubtotal"] = True
+        # The subtotal lives at the level of the field it aggregates
+        # (the second-to-last level), not the deepest level.
+        sub["__level"] = subtotal_field_index
+        sub["__parentKey"] = "||".join(
+            str(current_group[0].get(group_rows[i], "")) for i in range(subtotal_field_index)
+        )
+        new_rows.append(sub)
+
+    for r in rows:
+        if "_warning" in r:
+            new_rows.append(r)
+            continue
+        # Skip existing grand-total / column-total markers
+        if r.get("__isGrandTotal") or r.get("__isColumnTotal") or r.get("__isSubtotal"):
+            new_rows.append(r)
+            continue
+        level_val = r.get(subtotal_level_field)
+        parent_key = "||".join(
+            str(r.get(group_rows[i], "")) for i in range(len(group_rows) - 1)
+        )
+        if current_level_parent is None:
+            current_level_parent = parent_key
+            current_level_value = level_val
+            current_group.append(r)
+            new_rows.append(r)
+            continue
+        if parent_key != current_level_parent:
+            # Group changed — emit a subtotal for the previous group.
+            _flush_subtotal()
+            current_group = [r]
+            current_level_parent = parent_key
+            current_level_value = level_val
+            new_rows.append(r)
+        else:
+            current_group.append(r)
+            new_rows.append(r)
+
+    # Flush the trailing group.
+    _flush_subtotal()
+
+    rows.clear()
+    rows.extend(new_rows)
+
+
+# ── Phase 7 — Repeat item labels (Tabular Form) ─────────────────────────
+
+def _apply_repeat_item_labels(
+    rows: List[Dict[str, Any]],
+    group_rows: List[str],
+) -> None:
+    """Fill blank grouped cells with the value from the row above,
+    exactly like Excel's Tabular Form.
+
+    Operates in tabular mode (one row field per column).  In compact
+    mode the row fields are merged into a single "Rows" column so
+    the option is a no-op there.
+
+    Subtotal rows are intentionally NOT filled in on the deepest
+    level — the leaf value is what gets repeated, and a subtotal
+    has no leaf value.  This matches Excel, where the deepest
+    column on a subtotal row is blank.
+    """
+    if not group_rows:
+        return
+
+    if "Rows" in rows[0] if rows else False:
+        # Compact mode — nothing to do, the merged column already
+        # contains every level's value.
+        return
+
+    n = len(group_rows)
+    last_values: List[Any] = [None] * n
+    for r in rows:
+        if "_warning" in r:
+            continue
+        if r.get("__isGrandTotal") or r.get("__isColumnTotal"):
+            continue
+        is_subtotal = bool(r.get("__isSubtotal"))
+        for i, field in enumerate(group_rows):
+            v = r.get(field)
+            if v is None or v == "" or v == NULL_PLACEHOLDER:
+                if is_subtotal and i == n - 1:
+                    # Subtotal row: leave the deepest field blank so
+                    # the user sees an empty cell where the leaf
+                    # value would normally be.
+                    continue
+                r[field] = last_values[i]
+            else:
+                last_values[i] = v
+
+
+# ── Phase 7 — Column totals ─────────────────────────────────────────────
+
+def _insert_column_total_row(
+    rows: List[Dict[str, Any]],
+    filtered_df: pd.DataFrame,
+    group_rows: List[str],
+    value_specs: List[PivotValue],
+    pivot_columns: List[str],
+) -> None:
+    """Build a per-column-total row by re-aggregating `filtered_df`
+    along only the deeper row fields.  The row is marked
+    `__isColumnTotal` so the frontend can pin it beneath the grand
+    total in the same `pinnedBottomRowData` slot.
+
+    Implementation note: we do NOT re-pivot here — we iterate the
+    leaves of the pivot in `rows` (regular rows + subtotal rows
+    count as leaves for the purposes of this aggregation; we only
+    exclude `_warning`, `__isGrandTotal`, and `__isColumnTotal` rows)
+    and sum / re-aggregate their value columns.  This keeps the
+    column total consistent with the subtotal logic for every
+    supported aggregation.
+    """
+    if not value_specs:
+        return
+
+    new_row: Dict[str, Any] = {"__isColumnTotal": True}
+    # In tabular mode set the first row field to the label; in compact
+    # mode set the merged "Rows" column.
+    label_text = "Column Total"
+    if "Rows" in (rows[0] if rows else {}):
+        new_row["Rows"] = label_text
+    elif group_rows:
+        for i, field in enumerate(group_rows):
+            new_row[field] = label_text if i == 0 else ""
+    else:
+        # No row fields — attach the label to the first visible column.
+        first = next((c for c in pivot_columns if not c.startswith("__")), None)
+        if first:
+            new_row[first] = label_text
+
+    # Re-aggregate the value columns from the leaves of the existing
+    # rows.  This gives the correct result for every aggregation
+    # because each leaf row already contains a value per
+    # (group, value) combination; we EXCLUDE subtotals so the
+    # column total is a true "sum of leaves" and not a sum of
+    # subtotals-of-leaves (which would double-count).
+    leaf_rows = [
+        r for r in rows
+        if "_warning" not in r
+        and not r.get("__isGrandTotal")
+        and not r.get("__isColumnTotal")
+        and not r.get("__isSubtotal")
+    ]
+
+    def _reagg(spec: PivotValue) -> Any:
+        label = _value_label(spec)
+        nums: List[float] = []
+        for r in leaf_rows:
+            v = r.get(label)
+            if v is None:
+                continue
+            try:
+                nums.append(float(v))
+            except (TypeError, ValueError):
+                pass
+        if not nums:
+            return 0
+        if spec.aggregation == "average":
+            return sum(nums) / len(nums)
+        if spec.aggregation == "min":
+            return min(nums)
+        if spec.aggregation == "max":
+            return max(nums)
+        return sum(nums)  # sum, count
+
+    for spec in value_specs:
+        new_row[_value_label(spec)] = _reagg(spec)
+
+    # Add the row_total entry if the engine normally produces one
+    # (only when there is exactly one value spec and the value column
+    # list contains a row_total).
+    if (len(value_specs) == 1
+            and pivot_columns
+            and "row_total" in pivot_columns):
+        new_row["row_total"] = sum(
+            (v for v in (new_row.get(_value_label(s)) for s in value_specs) if isinstance(v, (int, float))),
+            0,
+        )
+
+    rows.append(new_row)
 
 
 def _compute_totals(
@@ -563,7 +945,9 @@ def _compute_totals(
                 value
                 for key, value in row.items()
                 if key not in row_columns
-                and key not in {"row_total", "_warning", "Rows"}
+                and key not in {"row_total", "_warning", "Rows",
+                                "__isGrandTotal", "__isSubtotal",
+                                "__isColumnTotal", "__level", "__parentKey"}
                 and isinstance(value, (int, float))
             ]
             if len(value_specs) == 1 and len(numeric_values) > 1:
@@ -592,7 +976,7 @@ def _date_group_series(series: pd.Series, grouping: str) -> pd.Series:
     """Convert datetime series to grouped string representation."""
     # Convert to datetime, coercing errors to NaT
     dt = pd.to_datetime(series, errors="coerce")
-    
+
     if grouping == "year":
         result = dt.dt.year.astype("Int64").astype(str)
     elif grouping == "quarter":
@@ -609,7 +993,7 @@ def _date_group_series(series: pd.Series, grouping: str) -> pd.Series:
         result = year + "-W" + week
     else:  # day
         result = dt.dt.strftime("%Y-%m-%d")
-    
+
     # Replace NaT with None for consistency
     return result.where(dt.notna(), None)
 

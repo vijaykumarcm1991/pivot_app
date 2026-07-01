@@ -62,6 +62,66 @@ def valid_aggregations_for(data_type: str) -> List[str]:
 # Public API
 # ---------------------------------------------------------------------------
 
+# ── Phase 7 — Display Options validation ─────────────────────────────────
+ALLOWED_NUMBER_FORMATS = {"integer", "decimal", "currency", "percentage", "thousands"}
+ALLOWED_DATE_FORMATS   = {"yyyy-mm-dd", "dd-mm-yyyy", "MMM yyyy", "MMMM yyyy", "quarter", "year"}
+ALLOWED_COND_TYPES     = {"gt", "lt", "eq", "top10", "bottom10", "duplicates"}
+
+
+def _validate_display_options(display_options, col_names, errors, warnings):
+    """Phase 7 — validate the optional DisplayOptions block.  Adds to
+    `errors` and `warnings` in place.  Returns nothing; failures don't
+    short-circuit (the user gets every error at once)."""
+    if not display_options:
+        return
+
+    # numberFormat / dateFormat
+    nf = dict(display_options.number_format or {})
+    df = dict(display_options.date_format or {})
+    for field, fmt in nf.items():
+        if field not in col_names:
+            errors.append(f"Display number format: field '{field}' not in sheet.")
+        elif fmt not in ALLOWED_NUMBER_FORMATS:
+            errors.append(
+                f"Display number format: unsupported value '{fmt}' "
+                f"for field '{field}'. Allowed: {sorted(ALLOWED_NUMBER_FORMATS)}."
+            )
+    for field, fmt in df.items():
+        if field not in col_names:
+            errors.append(f"Display date format: field '{field}' not in sheet.")
+        elif fmt not in ALLOWED_DATE_FORMATS:
+            errors.append(
+                f"Display date format: unsupported value '{fmt}' "
+                f"for field '{field}'. Allowed: {sorted(ALLOWED_DATE_FORMATS)}."
+            )
+
+    # conditionalFormats
+    for cf in (display_options.conditional_formats or []):
+        if not cf.field:
+            errors.append("Conditional format: missing 'field'.")
+            continue
+        if cf.field not in col_names:
+            errors.append(f"Conditional format: field '{cf.field}' not in sheet.")
+        if cf.type not in ALLOWED_COND_TYPES:
+            errors.append(
+                f"Conditional format: unsupported type '{cf.type}' "
+                f"for field '{cf.field}'. Allowed: {sorted(ALLOWED_COND_TYPES)}."
+            )
+        if cf.type in {"gt", "lt", "eq"} and cf.value is None:
+            errors.append(
+                f"Conditional format: '{cf.type}' rule for '{cf.field}' "
+                f"requires a numeric 'value'."
+            )
+
+    # frozenColumns / hiddenColumns
+    for col in (display_options.frozen_columns or []):
+        if col not in col_names:
+            errors.append(f"Display frozen column: '{col}' not in sheet.")
+    for col in (display_options.hidden_columns or []):
+        if col not in col_names:
+            errors.append(f"Display hidden column: '{col}' not in sheet.")
+
+
 def validate_pivot(db: Session, request: PivotRequest) -> Dict[str, Any]:
     """
     Validate *request* and return a structured response.
@@ -230,6 +290,10 @@ def validate_pivot(db: Session, request: PivotRequest) -> Dict[str, Any]:
                 f"Invalid sort direction '{direction}' for field '{field}'. "
                 "Use 'asc' or 'desc'."
             )
+
+    # --- 9. Phase 7 — display options --------------------------------------
+    if getattr(request, "display_options", None):
+        _validate_display_options(request.display_options, col_names, errors, warnings)
 
     return _build_response(
         valid=len(errors) == 0,
