@@ -706,6 +706,68 @@ minimal refactoring.
 
 ---
 
+## 15a. Lessons Learned (bugs hit during the V1 cycle)
+
+If you're modifying the pivot grid (`backend/app/static/js/pivot-grid.js`),
+the pivot engine (`backend/app/services/pivot_service.py`), or the
+pivot page (`backend/app/static/js/pivot.js` + `pivot.html`), please
+read this section first.
+
+### "Values are showing empty" after a Delete Records refresh
+
+**Symptom**: after clicking **Delete Records** and the auto-refresh
+fires, the value column (`sum_Amount`, etc.) disappears from the grid
+entirely. The data is correct in the API response and in
+`PivotGrid.getLastResponse()`, but the rendered grid only shows the
+row-field column.
+
+**Two underlying causes** (both required the same fix):
+
+1. **`getRowId` used every data key** — including the value columns.
+   When the pivot was re-computed, the value field's number changed,
+   the row ID changed, and AG Grid treated the row as new.
+
+2. **`setGridOption("columnDefs", ...)` can silently drop columns on
+   re-render** — in AG Grid v31, when the new columnDefs differ in
+   shape from the previous ones, `getColumns()` correctly reports
+   the new columns but the rendered DOM is missing one of them.
+
+**Fix** (in `backend/app/static/js/pivot-grid.js`):
+
+- `buildRowId` now excludes every value field (read from
+  `lastResponse.aggregations[i].label` + the row_total_field), the
+  `__*` markers, `_warning`, `Rows`, and `row_total`. The row ID is
+  determined by the row fields + the marker flags, never by the
+  aggregated numbers.
+- `render()` now **destroys and recreates the AG Grid instance** on
+  every re-render. This is heavier than the Phase 4 "reuse the
+  existing instance" pattern (~few hundred ms for the typical
+  pivot) but it guarantees the rendered grid exactly matches the
+  new columnDefs. The user's selection is preserved across the
+  recreate (saved before destroy via `buildRowId`, re-applied
+  after).
+- The grid-creation logic is extracted to `_createGrid()` so both
+  the first-render and the destroy+recreate paths share it.
+- A default valueFormatter is installed on every column that returns
+  `"—"` for `null` / `undefined` / non-finite numbers — this covers
+  the empty-group edge case (e.g. `average` / `min` / `max` on an
+  empty group after a soft delete, which produces `NaN` → `null` in
+  JSON).
+
+**Regression test**: `/tmp/d3_test.py` is a headless-Playwright test
+that reproduces the exact user scenario (one pivot row, delete,
+auto-refresh, inspect the rendered grid). Both columns must be
+present and the value column must show the correct post-delete
+number. Keep this test around and re-run it whenever touching the
+grid re-render path.
+
+### AG Grid v31 deprecation warning
+
+`api.setColumnPinned(key, pinned)` should be `api.setColumnsPinned([key], pinned)`.
+Not broken yet but emits a console warning.
+
+---
+
 ## 16. Security & Privacy Notes
 
 - The application listens on `0.0.0.0:8000` inside the container and is

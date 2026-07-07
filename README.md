@@ -11,7 +11,9 @@ mailing.
 
 | Commit    | Description                                                                                       |
 | --------- | ------------------------------------------------------------------------------------------------- |
-| (latest)  | **Phase 8 — Production-ready hardening**: Application Settings page (`/settings`), `GET /health` endpoint, rotating-file logging + SQLite mirror + Log Viewer page (`/logs`), friendly 400/403/404/500 error pages, three-layer file validation (extension / MIME / magic bytes), runtime-configurable max upload size, Diagnostics page (`/diagnostics`), Admin Cleanup utility (`/admin/cleanup`), Delete Audit page (`/admin/audit`), **Delete Records** feature on the Pivot page with **soft delete** (records disappear from pivot / drill-down / exports / email attachments without changing the existing workflow), automatic pivot refresh after delete, in-process metadata cache with auto-invalidation, draft recovery (pivot config auto-saved to localStorage; restore banner on next page open), better loading overlays + double-click guard on every action button. |
+| (latest)  | **Phase 8 hotfix — "values are showing empty" after Delete Records**: the AG Grid's `getRowId` was using every data key (including value columns) and the Phase 4 "reuse the existing instance" pattern silently lost columns on re-render. Fix: `buildRowId` now excludes value fields so the row ID is stable for the same pivot row across re-renders, and `render()` now destroys + recreates the AG Grid instance on every re-render (heavier but guaranteed to match the new columnDefs; user selection is preserved across the recreate). |
+| (prev)    | **Phase 8 fix — null/NaN pivot values**: default valueFormatter on every column now returns `"—"` for `null` / `undefined` / non-finite numbers (e.g. `average`/`min`/`max` on an empty group after a soft delete). |
+| (prev)    | **Phase 8 — Production-ready hardening**: Application Settings page (`/settings`), `GET /health` endpoint, rotating-file logging + SQLite mirror + Log Viewer page (`/logs`), friendly 400/403/404/500 error pages, three-layer file validation (extension / MIME / magic bytes), runtime-configurable max upload size, Diagnostics page (`/diagnostics`), Admin Cleanup utility (`/admin/cleanup`), Delete Audit page (`/admin/audit`), **Delete Records** feature on the Pivot page with **soft delete** (records disappear from pivot / drill-down / exports / email attachments without changing the existing workflow), automatic pivot refresh after delete, in-process metadata cache with auto-invalidation, draft recovery (pivot config auto-saved to localStorage; restore banner on next page open), better loading overlays + double-click guard on every action button. |
 | (prev)    | **Phase 7 — Excel-like pivot enhancements**: expand / collapse row groups, Repeat Item Labels (Tabular Form), real subtotal rows at the second-to-last row-field level, column totals pinned beneath the grand total, conditional formatting (gt / lt / eq / top 10 / bottom 10 / duplicates), number formatting (integer / decimal / currency / percentage / thousands), date formatting (yyyy-mm-dd / dd-mm-yyyy / MMM yyyy / MMMM yyyy / quarter / year), freeze columns, hide / show columns, auto-fit column widths, copy to clipboard (TSV → Excel), print view (title + dataset + table + totals + date), responsive polish. 16/16 manual tests pass. |
 | (prev)    | **Phase 6 — Email composition**: Send Email button on the Pivot page → composer modal (To/CC/BCC + Subject + Message) with HTML preview, .xlsx attachment, SMTP settings page, email history page, recent-recipient autocomplete, and 11 new API endpoints. The grand-total block in the email body is disabled (it was rendering blank in V1) — the pivot summary table is still rendered. |
 | (prev)    | **Phase 5 — Drill-down**: double-click or multi-select pivot rows → Bootstrap modal with raw records, dedup, search, column visibility, matching-criteria card, summary card, and reusable Excel export. |
@@ -922,6 +924,68 @@ Playwright run against the deployed build (see
     Collapse All group + the Columns / Freeze / Auto-fit / Copy /
     Print group. The toolbar is sticky and the result area is
     scrollable.
+
+## Known Issues / Lessons Learned
+
+The codebase has hit a few subtle bugs that are now fixed. If you're
+modifying the pivot grid (`backend/app/static/js/pivot-grid.js`),
+the pivot engine (`backend/app/services/pivot_service.py`), or the
+pivot page (`backend/app/static/js/pivot.js` + `pivot.html`), please
+read this section first.
+
+### AG Grid v31.3.2 — "values are showing empty" after a Delete Records refresh
+
+**Symptom**: after clicking **Delete Records** and the auto-refresh
+fires, the value column (`sum_Amount`, etc.) disappears from the grid
+entirely. The data is correct in the API response and in
+`PivotGrid.getLastResponse()`, but the rendered grid only shows the
+row-field column. The user reported "values are showing empty" on
+the pivot page.
+
+**Two underlying causes** (both required the same fix):
+
+1. **`getRowId` used every data key** — including the value columns.
+   When the pivot was re-computed, the value field's number changed,
+   the row ID changed, and AG Grid treated the row as new.
+
+2. **`setGridOption("columnDefs", ...)` can silently drop columns on
+   re-render** — in AG Grid v31, when the new columnDefs differ in
+   shape from the previous ones, `getColumns()` correctly reports
+   the new columns but the rendered DOM is missing one of them.
+
+**Fix** (in `backend/app/static/js/pivot-grid.js`):
+
+- `buildRowId` now excludes every value field (read from
+  `lastResponse.aggregations[i].label` + the row_total_field), the
+  `__*` markers, `_warning`, `Rows`, and `row_total`. The row ID is
+  determined by the row fields + the marker flags, never by the
+  aggregated numbers.
+- `render()` now **destroys and recreates the AG Grid instance** on
+  every re-render. This is heavier than the Phase 4 "reuse the
+  existing instance" pattern (~few hundred ms for the typical
+  pivot) but it guarantees the rendered grid exactly matches the
+  new columnDefs. The user's selection is preserved across the
+  recreate (saved before destroy via `buildRowId`, re-applied
+  after).
+- The grid-creation logic is extracted to `_createGrid()` so both
+  the first-render and the destroy+recreate paths share it.
+- A default valueFormatter is installed on every column that returns
+  `"—"` for `null` / `undefined` / non-finite numbers — this covers
+  the empty-group edge case (e.g. `average` / `min` / `max` on an
+  empty group after a soft delete, which produces `NaN` →
+  `null` in JSON).
+
+**Regression test**: `/tmp/d3_test.py` is a headless-Playwright test
+that reproduces the exact user scenario (one pivot row, delete,
+auto-refresh, inspect the rendered grid). Both columns must be
+present and the value column must show the correct post-delete
+number. Keep this test around and re-run it whenever touching the
+grid re-render path.
+
+### AG Grid v31 deprecation warning
+
+`api.setColumnPinned(key, pinned)` should be `api.setColumnsPinned([key], pinned)`.
+Not broken yet but emits a console warning.
 
 ## How the theme system works
 
