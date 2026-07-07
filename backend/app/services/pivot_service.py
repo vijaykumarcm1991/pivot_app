@@ -349,8 +349,7 @@ def _load_dataset_sheet(db: Session, dataset_id: int, sheet_name: str) -> pd.Dat
     # so the deleted rows stay deleted.
     try:
         from app.models.soft_deleted_record import SoftDeletedRecord
-        import json as _json
-        import hashlib as _hashlib
+        from app.services.row_keys import row_source_key
 
         soft_rows = (
             db.query(SoftDeletedRecord.row_payload)
@@ -359,25 +358,27 @@ def _load_dataset_sheet(db: Session, dataset_id: int, sheet_name: str) -> pd.Dat
             .all()
         )
         if soft_rows:
-            # Build a set of signatures to skip.
-            def _sig(rec: dict) -> str:
+            # Build a set of signatures to skip. The same
+            # `row_source_key` helper is used in the soft-delete
+            # service when computing the stored key, so the
+            # normalises JSON null / pandas NaN / empty string to
+            # the same canonical form — the two paths always agree.
+            import json as _json
+            skip = set()
+            for r in soft_rows:
+                if not r[0]:
+                    continue
                 try:
-                    canonical = _json.dumps(
-                        {k: rec.get(k) for k in sorted(rec.keys())},
-                        sort_keys=True, default=str,
-                    )
+                    payload = _json.loads(r[0])
                 except Exception:
-                    canonical = repr(sorted(rec.items()))
-                return _hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-            skip = {(_sig(_json.loads(r[0])) if r[0] else "") for r in soft_rows}
-            skip.discard("")
+                    continue
+                skip.add(row_source_key(payload))
             if skip:
                 # Build a per-row signature for the source DataFrame
                 # and filter out the deleted ones.
                 keep_mask = []
                 for _idx, row in df.iterrows():
-                    keep_mask.append(_sig({k: row[k] for k in df.columns}) not in skip)
+                    keep_mask.append(row_source_key({k: row[k] for k in df.columns}) not in skip)
                 df = df.loc[keep_mask].reset_index(drop=True)
     except Exception:
         # If anything goes wrong with the soft-delete filter, keep

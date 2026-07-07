@@ -52,6 +52,7 @@ from app.models.delete_audit import DeleteAudit
 from app.models.soft_deleted_record import SoftDeletedRecord
 from app.repositories.dataset_repository import get_dataset_by_id
 from app.services.pivot_service import build_drilldown
+from app.services.row_keys import row_source_key
 from app.schemas.pivot import PivotDrilldownRequest, PivotValue
 from app.services import metadata_cache
 from app.services.app_logging import log_event
@@ -59,19 +60,6 @@ from app.services.app_logging import log_event
 
 class SoftDeleteError(ValueError):
     """Raised when a soft-delete request is invalid."""
-
-
-def _row_source_key(row: Dict[str, Any]) -> str:
-    """Stable per-row signature — same approach the drilldown dedup
-    uses.  Returns a hex digest."""
-    try:
-        canonical = json.dumps(
-            {k: row.get(k) for k in sorted(row.keys())},
-            sort_keys=True, default=str,
-        )
-    except Exception:
-        canonical = repr(sorted(row.items()))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _existing_keys(db: Session, dataset_id: int, sheet_name: str) -> set:
@@ -202,7 +190,7 @@ def soft_delete_from_pivot(
 
             total_matched += int(result.metadata.get("matched_rows") or 0)
             for row in result.rows:
-                key = _row_source_key(row)
+                key = row_source_key(row)
                 if key in existing or key in new_keys:
                     continue
                 new_keys.add(key)
@@ -213,7 +201,7 @@ def soft_delete_from_pivot(
             db.add(SoftDeletedRecord(
                 dataset_id=dataset_id,
                 sheet_name=sheet_name,
-                source_key=_row_source_key(row),
+                source_key=row_source_key(row),
                 row_payload=json.dumps(row, default=str)[:65000],
                 pivot_request=audit.pivot_payload_json,
                 deleted_at=datetime.utcnow(),
