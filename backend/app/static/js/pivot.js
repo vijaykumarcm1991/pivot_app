@@ -841,6 +841,22 @@
     // Phase 4: show loading overlay, disable button, hide empty state
     setComputing(true);
 
+    // Phase 8 — on narrow viewports the actions card itself is below
+    // the fold (because the left config panel stacks vertically with
+    // the right result area), so the user can't see the loading state
+    // they just triggered. Scroll the actions card into view so the
+    // spinner is visible while the request is in flight.
+    try {
+      const ac = document.getElementById("actionsCard");
+      if (ac) {
+        const rect = ac.getBoundingClientRect();
+        const vh = window.innerHeight || document.documentElement.clientHeight;
+        if (rect.top < 0 || rect.bottom > vh) {
+          ac.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+    } catch (_) { /* best-effort */ }
+
     const payload = buildPayload();
     requestJson.textContent = JSON.stringify(payload, null, 2);
     try {
@@ -960,6 +976,30 @@
     // 6. Show the grid card + debug card
     pivotCard.style.display = "";
     debugCard.style.display = "";
+
+    // Phase 8 — auto-scroll to the grid after a successful compute.
+    // On narrow viewports the actions card + grid are below the
+    // fold, so the user can't see the result without scrolling.
+    // We scroll the grid into view (smooth, not blocking the
+    // compute). We skip the scroll if the grid is already fully
+    // visible in the viewport.
+    try {
+      if (pivotCard) {
+        const rect = pivotCard.getBoundingClientRect();
+        const vh = window.innerHeight || document.documentElement.clientHeight;
+        const fullyVisible = rect.top >= 0 && rect.bottom <= vh;
+        if (!fullyVisible) {
+          // Small delay so the grid is in the DOM before we scroll.
+          setTimeout(() => {
+            try {
+              pivotCard.scrollIntoView({ behavior: "smooth", block: "start" });
+            } catch (_) {
+              pivotCard.scrollIntoView();
+            }
+          }, 50);
+        }
+      }
+    } catch (_) { /* best-effort */ }
 
     // 7. Enable Export (Phase 4 §12) + Drill-down (Phase 5) + Email (Phase 6)
     //    + Delete Records (Phase 8)
