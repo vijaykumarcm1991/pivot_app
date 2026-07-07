@@ -1,5 +1,5 @@
 """
-Dataset management routes — Phase 2.
+Dataset management routes — Phase 2 + Phase 8.
 
 API endpoints:
   GET /api/datasets                                    → list all datasets
@@ -13,6 +13,7 @@ Page endpoints:
 """
 
 import os
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -21,6 +22,7 @@ from typing import List
 
 from app.config.database import get_db
 from app.config.settings import UPLOAD_DIR
+from app.models.deleted_dataset import DeletedDataset
 from app.repositories.dataset_repository import get_all_datasets, get_dataset_by_id, delete_dataset
 from app.repositories.sheet_repository import get_sheet, delete_sheets_by_dataset
 from app.repositories.column_repository import delete_columns_by_dataset
@@ -31,6 +33,8 @@ from app.services.dataset_service import (
     get_sheet_columns,
     get_sheet_preview,
 )
+from app.services import metadata_cache
+from app.services.app_logging import log_event
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -102,30 +106,62 @@ def api_get_preview(dataset_id: int, sheet_name: str, db: Session = Depends(get_
 
 
 @router.delete("/api/dataset/{dataset_id}")
-def api_delete_dataset(dataset_id: int, db: Session = Depends(get_db)):
-    """Delete a dataset and its associated files, sheets, and columns."""
+def api_delete_dataset(dataset_id: int, req: Request, db: Session = Depends(get_db)):
+    """Delete a dataset and its associated files, sheets, columns, and soft-deleted records."""
     dataset = get_dataset_by_id(db, dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     try:
+        # Phase 8 — capture metadata for the deleted_datasets audit
+        # before we drop the row.
+        snapshot = DeletedDataset(
+            original_id=dataset.id,
+            filename=dataset.filename or "",
+            stored_filename=dataset.stored_filename or "",
+            total_rows=int(dataset.total_rows or 0),
+            total_columns=int(dataset.total_columns or 0),
+            upload_time=dataset.upload_time,
+            deleted_at=datetime.utcnow(),
+            deleted_by="ui",
+        )
+        db.add(snapshot)
+
         # 1. Delete the stored file from disk
         filepath = build_upload_path(dataset.stored_filename, UPLOAD_DIR)
         if os.path.exists(filepath):
             os.remove(filepath)
-        
+
         # 2. Delete columns metadata
         delete_columns_by_dataset(db, dataset_id)
-        
+
         # 3. Delete sheets metadata
         delete_sheets_by_dataset(db, dataset_id)
-        
+
         # 4. Delete the dataset record itself
         delete_dataset(db, dataset_id)
-        
-        # 5. Commit all deletions
+
+        # 5. Drop any soft-deleted records for this dataset (cascading)
+        from app.models.soft_deleted_record import SoftDeletedRecord
+        from app.models.delete_audit import DeleteAudit
+        db.query(SoftDeletedRecord).filter(SoftDeletedRecord.dataset_id == dataset_id).delete()
+        db.query(DeleteAudit).filter(DeleteAudit.dataset_id == dataset_id).delete()
+
+        # 6. Commit all deletions
         db.commit()
-        
+
+        # 7. Phase 8 — invalidate the in-memory cache so any open
+        # pivot for this dataset gets a fresh view on next compute.
+        metadata_cache.invalidate_dataset(dataset_id)
+
+        log_event(
+            "info",
+            "Dataset deleted",
+            category="dataset",
+            details=f"id={dataset_id} file={dataset.filename}",
+            request=req,
+        )
+
         return JSONResponse(
             content={
                 "message": f"Dataset '{dataset.filename}' deleted successfully",
@@ -135,4 +171,11 @@ def api_delete_dataset(dataset_id: int, db: Session = Depends(get_db)):
         )
     except Exception as exc:
         db.rollback()
+        log_event(
+            "error",
+            "Dataset delete failed",
+            category="dataset",
+            details=f"id={dataset_id} error={exc}",
+            request=req,
+        )
         raise HTTPException(status_code=500, detail=f"Delete failed: {exc}")

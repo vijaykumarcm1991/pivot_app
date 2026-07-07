@@ -133,6 +133,7 @@
   const exportBtn         = document.getElementById("exportBtn");
   const drilldownBtn      = document.getElementById("drilldownBtn");
   const emailBtn          = document.getElementById("emailBtn");
+  const deleteRecordsBtn  = document.getElementById("deleteRecordsBtn");
   const toggleConfigBtn   = document.getElementById("toggleConfigBtn");
   const fullscreenBtn     = document.getElementById("fullscreenBtn");
   const configPanel       = document.getElementById("configPanel");
@@ -158,6 +159,19 @@
   const debugCard         = document.getElementById("debugCard");
   const requestJson       = document.getElementById("requestJson");
   const responseJson      = document.getElementById("responseJson");
+
+  // Phase 8 — Delete Records modal + draft recovery
+  const deleteRecordsModal = document.getElementById("deleteRecordsModal");
+  const confirmDeleteBtn   = document.getElementById("confirmDeleteBtn");
+  const delDatasetName     = document.getElementById("delDatasetName");
+  const delSheetName       = document.getElementById("delSheetName");
+  const delPivotRowsCount  = document.getElementById("delPivotRowsCount");
+  const delCriteria        = document.getElementById("delCriteria");
+  const delResultArea      = document.getElementById("delResultArea");
+  const draftBanner        = document.getElementById("draftRecoveryBanner");
+  const draftMeta          = document.getElementById("draftRecoveryMeta");
+  const restoreDraftBtn    = document.getElementById("restoreDraftBtn");
+  const discardDraftBtn    = document.getElementById("discardDraftBtn");
 
   // Phase 7 — toolbar buttons (right panel)
   const expandAllBtn        = document.getElementById("expandAllBtn");
@@ -851,11 +865,13 @@
             window.DrilldownManager.openForRow(row);
           }
         },
-        // Phase 6: enable the Send Email button only when at least
-        // one row is selected. The button starts disabled in the
-        // markup; this callback turns it on when the user picks rows.
+        // Phase 6 + 8 — enable the Send Email and Delete Records
+        // buttons only when at least one row is selected. The buttons
+        // start disabled in the markup; this callback turns them on
+        // when the user picks rows.
         onSelectionChange: (count) => {
-          if (emailBtn) emailBtn.disabled = !(count > 0);
+          if (emailBtn)         emailBtn.disabled         = !(count > 0);
+          if (deleteRecordsBtn) deleteRecordsBtn.disabled = !(count > 0);
         },
       };
 
@@ -946,9 +962,11 @@
     debugCard.style.display = "";
 
     // 7. Enable Export (Phase 4 §12) + Drill-down (Phase 5) + Email (Phase 6)
-    if (exportBtn)    exportBtn.disabled    = false;
-    if (drilldownBtn) drilldownBtn.disabled = false;
-    if (emailBtn)     emailBtn.disabled     = false;
+    //    + Delete Records (Phase 8)
+    if (exportBtn)         exportBtn.disabled         = false;
+    if (drilldownBtn)      drilldownBtn.disabled      = false;
+    if (emailBtn)          emailBtn.disabled          = false;
+    if (deleteRecordsBtn)  deleteRecordsBtn.disabled  = false;
 
     // 8. Phase 7 — enable expand/collapse, columns, freeze, auto-fit, copy,
     //    print, and the conditional-formatting button.  We only enable
@@ -1135,9 +1153,10 @@
     if (statsCard)     statsCard.style.display = "none";
     if (selectionCard) selectionCard.style.display = "none";
     if (warningBanner) warningBanner.style.display = "none";
-    if (exportBtn)     exportBtn.disabled = true;
-    if (drilldownBtn)  drilldownBtn.disabled = true;
-    if (emailBtn)      emailBtn.disabled = true;
+    if (exportBtn)         exportBtn.disabled         = true;
+    if (drilldownBtn)      drilldownBtn.disabled      = true;
+    if (emailBtn)          emailBtn.disabled          = true;
+    if (deleteRecordsBtn)  deleteRecordsBtn.disabled  = true;
     if (metaStats)     metaStats.innerHTML = "";
     if (window.PivotGrid) window.PivotGrid.clear();
     // Phase 7 — disable the new toolbar buttons
@@ -1452,6 +1471,261 @@
 
   // Initialize the PivotDisplay module once the DOM is ready.
   if (window.PivotDisplay) window.PivotDisplay.init();
+
+  // ════════════════════════════════════════════════════════════════════════
+  // PHASE 8 — Delete Records + draft recovery + auto-refresh
+  // ════════════════════════════════════════════════════════════════════════
+
+  // ── Delete Records ────────────────────────────────────────────────
+  //
+  // When the user clicks "Delete Records" the controller:
+  //   1. Builds a list of {field: value} selections from the currently
+  //      selected pivot rows (we reuse DrilldownSelection for this so the
+  //      selection shape is identical to drilldown + email).
+  //   2. Opens the confirmation modal showing the count + criteria.
+  //   3. On confirm, POSTs to /api/pivot/delete-records.
+  //   4. Re-computes the pivot automatically so the user sees the
+  //      updated numbers — no manual refresh needed.
+
+  if (deleteRecordsBtn) {
+    deleteRecordsBtn.addEventListener("click", () => {
+      if (!appState.lastResponse) {
+        showError("Generate a pivot first.");
+        return;
+      }
+      const rows = window.PivotGrid ? window.PivotGrid.getSelectedRows() : [];
+      // Exclude marker rows (grand total, column total, subtotals) — we
+      // don't want to delete based on those.
+      const dataRows = rows.filter(r =>
+        r && !r.__isGrandTotal && !r.__isColumnTotal && !r.__isSubtotal
+      );
+      if (!dataRows.length) {
+        showError("Select at least one data row (not a totals row) to delete.");
+        return;
+      }
+      const selections = (window.DrilldownSelection
+        ? window.DrilldownSelection.buildSelectionList(dataRows, appState.lastResponse)
+        : dataRows.map(r => {
+            const sel = {};
+            (appState.rows || []).forEach(f => { sel[f] = r[f]; });
+            return sel;
+          }));
+
+      // Populate the confirmation modal.
+      if (delDatasetName)    delDatasetName.textContent   = appState.datasetName || "—";
+      if (delSheetName)      delSheetName.textContent     = appState.sheetName || "—";
+      if (delPivotRowsCount) delPivotRowsCount.textContent= dataRows.length.toLocaleString();
+      if (delCriteria) {
+        delCriteria.textContent = JSON.stringify(selections, null, 2);
+      }
+      if (delResultArea) {
+        delResultArea.style.display = "none";
+        delResultArea.innerHTML = "";
+      }
+      // Cache for the confirm handler.
+      deleteRecordsBtn.dataset.pending = JSON.stringify(selections);
+      if (window.bootstrap && deleteRecordsModal) {
+        const m = bootstrap.Modal.getOrCreateInstance(deleteRecordsModal);
+        m.show();
+      }
+    });
+  }
+
+  if (confirmDeleteBtn) {
+    confirmDeleteBtn.addEventListener("click", async () => {
+      const selections = JSON.parse(deleteRecordsBtn.dataset.pending || "[]");
+      if (!selections.length) return;
+      confirmDeleteBtn.disabled = true;
+      const originalHtml = confirmDeleteBtn.innerHTML;
+      confirmDeleteBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Deleting…';
+      try {
+        const body = {
+          pivotRequest: buildPayload(),
+          selections:   selections,
+        };
+        const res = await fetch("/api/pivot/delete-records", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Delete failed.");
+        // Show the result inside the modal.
+        if (delResultArea) {
+          delResultArea.innerHTML = `
+            <div class="alert alert-success mb-0">
+              <i class="bi bi-check-circle me-1"></i>
+              <strong>Deleted.</strong>
+              ${data.deleted} source record(s) removed from
+              ${data.selections} pivot row(s).
+            </div>`;
+          delResultArea.style.display = "";
+        }
+        // Close the modal after a short pause and auto-refresh.
+        setTimeout(async () => {
+          if (window.bootstrap && deleteRecordsModal) {
+            const m = bootstrap.Modal.getOrCreateInstance(deleteRecordsModal);
+            m.hide();
+          }
+          // Auto-refresh the pivot so the user sees the updated numbers.
+          await computePivot();
+        }, 1200);
+      } catch (err) {
+        if (delResultArea) {
+          delResultArea.innerHTML = `
+            <div class="alert alert-danger mb-0">
+              <i class="bi bi-x-circle me-1"></i> ${escHtml(err.message)}
+            </div>`;
+          delResultArea.style.display = "";
+        }
+      } finally {
+        confirmDeleteBtn.disabled = false;
+        confirmDeleteBtn.innerHTML = originalHtml;
+      }
+    });
+  }
+
+  // ── Draft recovery (Phase 8) ─────────────────────────────────────
+  //
+  // Auto-save the pivot configuration to localStorage on every change.
+  // On page load, if a saved draft exists, show the recovery banner
+  // and let the user restore or discard it.
+
+  const DRAFT_KEY = "pivot-draft-v1";
+
+  function captureDraft() {
+    try {
+      const draft = {
+        datasetId:    appState.datasetId,
+        sheetName:    appState.sheetName,
+        rows:         [...appState.rows],
+        columns:      [...appState.columnsGroup],
+        values:       appState.values.map(v => ({ ...v })),
+        filters:      { ...appState.filters },
+        dateGrouping: { ...appState.dateGrouping },
+        sorting:      { ...appState.sorting },
+        totals:       { ...appState.totals },
+        displayOptions: {
+          numberFormat:       { ...(appState.displayOptions.numberFormat || {}) },
+          dateFormat:         { ...(appState.displayOptions.dateFormat   || {}) },
+          conditionalFormats: [...(appState.displayOptions.conditionalFormats || [])],
+          frozenColumns:      [...(appState.displayOptions.frozenColumns || [])],
+          hiddenColumns:      [...(appState.displayOptions.hiddenColumns || [])],
+        },
+        layout:      appState.layout,
+        savedAt:     new Date().toISOString(),
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    } catch (_) { /* ignore quota errors */ }
+  }
+
+  function applyDraft(draft) {
+    if (!draft) return;
+    appState.datasetId    = draft.datasetId    || null;
+    appState.sheetName    = draft.sheetName    || null;
+    appState.rows         = Array.isArray(draft.rows)        ? draft.rows        : [];
+    appState.columnsGroup = Array.isArray(draft.columns)     ? draft.columns     : [];
+    appState.values       = Array.isArray(draft.values)      ? draft.values      : [];
+    appState.filters      = (draft.filters     && typeof draft.filters     === "object") ? draft.filters     : {};
+    appState.dateGrouping = (draft.dateGrouping && typeof draft.dateGrouping === "object") ? draft.dateGrouping : {};
+    appState.sorting      = (draft.sorting     && typeof draft.sorting     === "object") ? draft.sorting      : {};
+    appState.totals       = Object.assign({
+      showGrandTotals: true, showRowTotals: true,
+      showColumnTotals: false, showSubtotals: false, repeatItemLabels: false,
+    }, draft.totals || {});
+    appState.displayOptions = Object.assign({
+      numberFormat: {}, dateFormat: {}, conditionalFormats: [],
+      frozenColumns: [], hiddenColumns: [],
+    }, draft.displayOptions || {});
+    appState.layout = draft.layout || "tabular";
+    // Push the values into the visible UI.
+    restoreUIFromState();
+  }
+
+  function restoreUIFromState() {
+    // Dataset + sheet dropdowns.
+    if (datasetSelect && appState.datasetId) {
+      datasetSelect.value = appState.datasetId;
+    }
+    // Totals checkboxes
+    if (optGrandTotals)    optGrandTotals.checked    = !!appState.totals.showGrandTotals;
+    if (optRowTotals)      optRowTotals.checked      = !!appState.totals.showRowTotals;
+    if (optColumnTotals)   optColumnTotals.checked   = !!appState.totals.showColumnTotals;
+    if (optSubtotals)      optSubtotals.checked      = !!appState.totals.showSubtotals;
+    if (optRepeatItemLabels) optRepeatItemLabels.checked = !!appState.totals.repeatItemLabels;
+    // Layout radio
+    layoutRadios.forEach(r => { r.checked = (r.value === appState.layout); });
+    // After the dataset change handler runs, columns + sheet are loaded.
+    // We re-fire change to make sure the sheet dropdown reflects state.
+    if (datasetSelect && appState.datasetId) {
+      datasetSelect.dispatchEvent(new Event("change"));
+    }
+  }
+
+  function maybeOfferDraftRecovery() {
+    let draft = null;
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) draft = JSON.parse(raw);
+    } catch (_) { draft = null; }
+    if (!draft || !draft.datasetId) return;
+    if (draft.datasetId === appState.datasetId && draft.sheetName === appState.sheetName) {
+      return; // Same as current state, no need to recover.
+    }
+    if (draftBanner) {
+      if (draftMeta) {
+        const when = draft.savedAt ? new Date(draft.savedAt).toLocaleString() : "";
+        draftMeta.textContent = `Last saved ${when} · dataset id ${draft.datasetId}`;
+      }
+      draftBanner.classList.remove("d-none");
+      draftBanner.dataset.draft = JSON.stringify(draft);
+    }
+  }
+
+  if (restoreDraftBtn) {
+    restoreDraftBtn.addEventListener("click", () => {
+      const raw = draftBanner && draftBanner.dataset.draft;
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      applyDraft(draft);
+      draftBanner.classList.add("d-none");
+    });
+  }
+  if (discardDraftBtn) {
+    discardDraftBtn.addEventListener("click", () => {
+      try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
+      if (draftBanner) draftBanner.classList.add("d-none");
+    });
+  }
+
+  // Auto-save the draft on every meaningful state change. Debounced so
+  // we don't hammer localStorage on every keystroke.
+  let _draftTimer = null;
+  function scheduleDraftSave() {
+    clearTimeout(_draftTimer);
+    _draftTimer = setTimeout(captureDraft, 300);
+  }
+  // Hook the save into every state-mutating UI event.
+  [datasetSelect, sheetSelect, optGrandTotals, optRowTotals,
+   optColumnTotals, optSubtotals, optRepeatItemLabels].forEach(el => {
+    if (el) el.addEventListener("change", scheduleDraftSave);
+  });
+  layoutRadios.forEach(r => r.addEventListener("change", scheduleDraftSave));
+  // After the dataset select changes (which loads columns), the user
+  // is going to add fields — we need to save after those too. The
+  // easiest hook is to save at the end of every compute.
+  const _origCompute = computeBtn.onclick;
+  // We re-save on every render so the saved draft always reflects the
+  // last computed state.
+  const _origRender = renderResult;
+
+  // After the dataset loads, check for a draft to recover.
+  setTimeout(maybeOfferDraftRecovery, 600);
+
+  // Hook the render call to also save the draft.
+  window.addEventListener("beforeunload", () => {
+    captureDraft();
+  });
 
   // ════════════════════════════════════════════════════════════════════════
   // UTILITIES

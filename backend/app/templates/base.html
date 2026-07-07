@@ -95,6 +95,49 @@
           <li class="nav-item">
             <a class="nav-link" href="/pivot"><i class="bi bi-table me-1"></i>Pivot</a>
           </li>
+          <li class="nav-item">
+            <a class="nav-link" href="/email/settings"><i class="bi bi-envelope-gear me-1"></i>Email</a>
+          </li>
+          <li class="nav-item dropdown">
+            <button
+              class="btn btn-outline-light btn-sm dropdown-toggle d-flex align-items-center"
+              type="button"
+              id="adminMenuToggle"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+              title="Admin"
+            >
+              <i class="bi bi-gear-fill me-1"></i><span>Admin</span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminMenuToggle">
+              <li>
+                <a class="dropdown-item d-flex align-items-center" href="/settings">
+                  <i class="bi bi-sliders me-2"></i> Settings
+                </a>
+              </li>
+              <li>
+                <a class="dropdown-item d-flex align-items-center" href="/diagnostics">
+                  <i class="bi bi-activity me-2"></i> Diagnostics
+                </a>
+              </li>
+              <li>
+                <a class="dropdown-item d-flex align-items-center" href="/logs">
+                  <i class="bi bi-journal-text me-2"></i> Log Viewer
+                </a>
+              </li>
+              <li>
+                <a class="dropdown-item d-flex align-items-center" href="/admin/cleanup">
+                  <i class="bi bi-trash3 me-2"></i> Cleanup Utility
+                </a>
+              </li>
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <a class="dropdown-item d-flex align-items-center" href="/health" target="_blank" rel="noopener">
+                  <i class="bi bi-heart-pulse me-2"></i> Health Endpoint
+                </a>
+              </li>
+            </ul>
+          </li>
 
           {# ── Theme toggle (System / Light / Dark) ──────────────────────── #}
           <li class="nav-item dropdown ms-lg-2">

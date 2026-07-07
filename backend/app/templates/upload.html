@@ -33,6 +33,7 @@
           <div id="fileInfo" class="alert alert-secondary d-none mb-3 py-2 px-3">
             <i class="bi bi-paperclip me-1"></i>
             <span id="fileName">No file selected</span>
+            <span id="fileSize" class="ms-2 small text-muted"></span>
           </div>
 
           <!-- Error alert -->
@@ -50,13 +51,26 @@
             </button>
           </div>
 
+          <!-- Loading overlay (Phase 8 — full-card overlay during upload) -->
+          <div id="uploadLoadingOverlay" class="position-absolute top-0 start-0 w-100 h-100 d-none"
+               style="background:rgba(255,255,255,0.75);z-index:10;border-radius:0.375rem;">
+            <div class="d-flex align-items-center justify-content-center h-100">
+              <div class="text-center">
+                <div class="spinner-border text-primary mb-2" role="status"></div>
+                <div class="small text-muted" id="uploadLoadingText">Uploading…</div>
+              </div>
+            </div>
+          </div>
+
         </form>
       </div>
     </div>
 
     <!-- Allowed formats note -->
     <p class="text-muted small mt-3 text-center">
-      <i class="bi bi-info-circle me-1"></i>Supported formats: <strong>.xlsx</strong>, <strong>.csv</strong> &nbsp;|&nbsp; Max size: <strong>50 MB</strong>
+      <i class="bi bi-info-circle me-1"></i>
+      Supported formats: <strong>.xlsx</strong>, <strong>.csv</strong> &nbsp;|&nbsp;
+      Max size: <strong id="maxUploadLabel">50 MB</strong>
     </p>
 
   </div>

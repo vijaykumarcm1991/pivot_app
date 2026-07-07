@@ -341,6 +341,49 @@ def _load_dataset_sheet(db: Session, dataset_id: int, sheet_name: str) -> pd.Dat
         raise PivotError(f"Failed to load sheet: {exc}") from exc
 
     df.columns = df.columns.astype(str)
+
+    # Phase 8 — soft delete. Drop every row whose signature is in
+    # the soft-deleted table for this (dataset, sheet). We do this
+    # AFTER loading the file but BEFORE any pivot / drilldown math.
+    # The signatures are stable across re-uploads of the same file,
+    # so the deleted rows stay deleted.
+    try:
+        from app.models.soft_deleted_record import SoftDeletedRecord
+        import json as _json
+        import hashlib as _hashlib
+
+        soft_rows = (
+            db.query(SoftDeletedRecord.row_payload)
+            .filter(SoftDeletedRecord.dataset_id == dataset_id)
+            .filter(SoftDeletedRecord.sheet_name == sheet_name)
+            .all()
+        )
+        if soft_rows:
+            # Build a set of signatures to skip.
+            def _sig(rec: dict) -> str:
+                try:
+                    canonical = _json.dumps(
+                        {k: rec.get(k) for k in sorted(rec.keys())},
+                        sort_keys=True, default=str,
+                    )
+                except Exception:
+                    canonical = repr(sorted(rec.items()))
+                return _hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+            skip = {(_sig(_json.loads(r[0])) if r[0] else "") for r in soft_rows}
+            skip.discard("")
+            if skip:
+                # Build a per-row signature for the source DataFrame
+                # and filter out the deleted ones.
+                keep_mask = []
+                for _idx, row in df.iterrows():
+                    keep_mask.append(_sig({k: row[k] for k in df.columns}) not in skip)
+                df = df.loc[keep_mask].reset_index(drop=True)
+    except Exception:
+        # If anything goes wrong with the soft-delete filter, keep
+        # going — we'd rather show slightly stale data than break.
+        pass
+
     return df
 
 
