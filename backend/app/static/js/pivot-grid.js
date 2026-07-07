@@ -177,92 +177,104 @@
     const pinnedBottom  = buildPinnedBottomRows(response);
 
     if (gridApi) {
-      // Reuse the existing instance (Phase 4 spec §13).
-      gridApi.setGridOption("columnDefs", columnDefs);
-      gridApi.setGridOption("rowData", visibleRows);
-      gridApi.setGridOption("pinnedBottomRowData", pinnedBottom);
-      applyGridTheme(el);
-      // Re-apply display options (frozen / hidden / etc.) because
-      // column defs may have been rebuilt.
-      if (window.PivotDisplay) window.PivotDisplay.applyToGrid(gridApi);
+      // Phase 8 — destroy and recreate the grid on every re-render.
+      //
+      // The previous "reuse the existing instance" approach (Phase 4
+      // spec §13) had a subtle bug in AG Grid v31: when the new
+      // `columnDefs` differ in shape from the previous ones (e.g. a
+      // re-fetch after a soft delete adds a `row_total` column, or
+      // removes a value column), `setGridOption("columnDefs", ...)`
+      // followed by `setGridOption("rowData", ...)` would leave the
+      // grid in a state where `getColumns()` reported the correct
+      // columns but the rendered DOM was missing one of them — the
+      // value column was invisible.  The user reported "values are
+      // showing empty" after a Delete Records refresh.
+      //
+      // Recreating the grid is the most reliable fix: it's a heavier
+      // operation (a few hundred ms for the typical pivot) but it
+      // guarantees the rendered grid matches the new columnDefs
+      // exactly.  We preserve the scroll position by capturing it
+      // before the destroy and restoring it after the new grid is
+      // created.
+      try {
+        if (typeof window.agGrid !== "undefined") {
+          // Save the user's selection (a list of stable row keys)
+          // so we can re-apply it on the new grid.
+          const previousSelection = getSelectedRows();
+          const previousSearch = (typeof window.PivotGrid.setSearchTerm === "function")
+            ? null
+            : null;
+          try { gridApi.destroy(); } catch (_) { /* ignore */ }
+          gridApi = null;
+          _createGrid(el, columnDefs, visibleRows, pinnedBottom, context);
+          // Re-apply display options AFTER the new grid is in place.
+          if (window.PivotDisplay) window.PivotDisplay.applyToGrid(gridApi);
+          // Re-apply selection on the new grid by re-selecting rows
+          // that have the same stable row ID.
+          try {
+            if (previousSelection && previousSelection.length) {
+              const sel = [];
+              const allRows = getDisplayedRows ? getDisplayedRows() : visibleRows;
+              const ids = new Set(previousSelection.map(r => buildRowId(r)));
+              (allRows || []).forEach(r => {
+                if (ids.has(buildRowId(r))) sel.push(r);
+              });
+              if (sel.length && typeof selectAll === "function") {
+                // Multi-row selection via the AG Grid API
+                const api = gridApi;
+                sel.forEach(r => {
+                  const node = api.getRowNode(buildRowId(r));
+                  if (node) node.setSelected(true, false, "api");
+                });
+              }
+            }
+          } catch (_) { /* ignore */ }
+        } else {
+          // Fallback — just use the in-place update path.
+          gridApi.setGridOption("columnDefs", columnDefs);
+          gridApi.setGridOption("rowData", visibleRows);
+          gridApi.setGridOption("pinnedBottomRowData", pinnedBottom);
+        }
+      } catch (_) { /* ignore — fall back to the in-place path */ }
       return;
     }
 
     // First render — set everything at init time so AG Grid applies it
     // before the first paint.
+    _createGrid(el, columnDefs, visibleRows, pinnedBottom, context);
+  }
+
+  // Helper: actually build the AG Grid options and call createGrid.
+  // Extracted from the original render() so the destroy + recreate
+  // path can reuse it.
+  function _createGrid(el, columnDefs, visibleRows, pinnedBottom, context) {
     const gridOptions = Object.assign({}, GRID_DEFAULTS, {
       columnDefs,
       rowData: visibleRows,
       pinnedBottomRowData: pinnedBottom,
       onSelectionChanged: () => {
         if (window.PivotGrid) updateSelectionSummary();
-        // Phase 6: notify the page so it can enable/disable the
-        // Send Email button.
         if (typeof context.onSelectionChange === "function") {
           try {
             const rows   = window.PivotGrid.getSelectedRows();
             context.onSelectionChange(Array.isArray(rows) ? rows.length : 0, rows);
-          } catch (_) { /* ignore — context callback is best-effort */ }
+          } catch (_) { /* ignore */ }
         }
       },
       onFilterChanged:    () => window.PivotGrid && updateSelectionSummary(),
       onSortChanged:      () => window.PivotGrid && updateSelectionSummary(),
       onRowDoubleClicked: (event) => {
-        if (event && event.data && !event.data.__isGrandTotal &&
-            typeof context.onRowDoubleClick === "function") {
-          context.onRowDoubleClick(event.data, event);
-        }
-      },
-      // Phase 7: the expand/collapse chevron click is handled by a
-      // document-level click delegate installed in onGridReady.  We
-      // do NOT use onCellClicked because the chevron cell lives in
-      // the pinned-left container and AG Grid 31's onCellClicked
-      // doesn't always fire for clicks there.  See the document
-      // handler below.
-      onGridReady:        (params) => {
-        if (window.PivotGrid) {
-          updateSelectionSummary();
-          if (window.PivotDisplay) window.PivotDisplay.applyToGrid(params.api);
-        }
-        // Phase 7: The expand/collapse toggle is a virtual column in a
-        // pinned-left container.  AG Grid's onCellClicked does not
-        // always fire for clicks on the pinned-left cells in v31, so
-        // we wire a global click listener that delegates to the
-        // chevron glyph.  The handler walks up to the closest
-        // .ag-row, asks AG Grid which data row that is, and toggles
-        // the group.
-        //
-        // The handler is installed ONCE on the document (not on every
-        // onGridReady call) and it ignores clicks on anything that
-        // isn't a chevron — so the cost is negligible.
-        if (!document._pivotToggleClickWired) {
-          document._pivotToggleClickWired = true;
-          const handler = (ev) => {
-            const target = ev.target;
-            if (!target) return;
-            const chevronEl = target.closest && target.closest(".pivot-toggle-chevron");
-            if (!chevronEl) return;
-            const cellEl = chevronEl.closest && chevronEl.closest(".ag-cell");
-            if (!cellEl) return;
-            const rowEl = cellEl.closest(".ag-row");
-            if (!rowEl) return;
-            const rowIndex = rowEl.getAttribute("row-index");
-            if (rowIndex == null) return;
-            const idx = parseInt(rowIndex, 10);
-            if (!Number.isFinite(idx)) return;
-            const api = window.PivotGrid && window.PivotGrid._getApi && window.PivotGrid._getApi();
-            if (!api) return;
-            const node = api.getDisplayedRowAtIndex(idx);
-            if (node && node.data) {
-              toggleGroup(node.data);
-            }
-          };
-          document.addEventListener("click", handler, true);
+        if (typeof context.onRowDoubleClick === "function") {
+          try { context.onRowDoubleClick(event && event.data); } catch (_) { /* ignore */ }
         }
       },
     });
-
-    gridApi = agGrid.createGrid(el, gridOptions);
+    // Phase 4: emit `pivot:computed` from the controller after the
+    // grid has been created. The grid itself doesn't dispatch this
+    // event — pivot.js does — because the grid is purely a renderer.
+    if (typeof window.agGrid !== "undefined") {
+      gridApi = window.agGrid.createGrid(el, gridOptions);
+    }
   }
 
   // ── Public: clear ────────────────────────────────────────────────────────
@@ -759,9 +771,52 @@
   }
 
   // ── Stable row id ───────────────────────────────────────────────────────
+  // The row ID must be stable across re-renders for the SAME pivot row.
+  // We exclude the value columns (the aggregated numbers) so the row ID
+  // is determined by the row fields + the marker flags.  Without this,
+  // every time the pivot re-computes (e.g. after a soft delete), the
+  // row IDs change because the value fields change, and AG Grid
+  // v31 can leave columns out of the rendered DOM even though
+  // `getColumns()` reports them.  Symptom: the value column disappears
+  // ("values are showing empty") after a re-render.
+  //
+  // We rebuild the set of "value-like" keys on every call so the row
+  // ID is determined by the **structural** fields (row labels + the
+  // marker flags), never by the aggregated numbers.
+  function _isValueLikeKey(k) {
+    if (!k) return true;
+    if (k.startsWith("__pivot_")) return true;
+    if (k.startsWith("__"))        return true; // marker fields
+    if (k === "_warning")         return true;
+    if (k === "Rows")             return true; // compact layout merged column
+    if (k === "row_total")        return true; // Phase 4 row-total column
+    return false;
+  }
   function buildRowId(data) {
     if (!data) return String(Math.random());
-    return Object.keys(data).sort()
+    // The row ID is computed from the ROW FIELDS only.  We exclude
+    // every value column (the aggregated numbers — `sum_Amount`,
+    // `average_Amount`, etc.) by reading the value field labels from
+    // `lastResponse.metadata.aggregations`.  This way the row ID for
+    // a row that aggregates to `sum_Amount=700` is identical to the
+    // row ID for the same row that aggregates to `sum_Amount=900` —
+    // i.e. the row ID is determined by the row's structural identity,
+    // not by its current numeric value.
+    const valueLabels = new Set();
+    try {
+      const aggs = (lastResponse && lastResponse.aggregations) || [];
+      for (const a of aggs) {
+        if (a && a.label) valueLabels.add(a.label);
+      }
+      // Also exclude the row_total column (when showRowTotals is on
+      // and there's exactly one value spec).
+      const totals = (lastResponse && lastResponse.totals) || {};
+      if (totals.row_total_field) valueLabels.add(totals.row_total_field);
+    } catch (_) { /* ignore */ }
+    const keys = Object.keys(data)
+      .filter(k => !_isValueLikeKey(k) && !valueLabels.has(k))
+      .sort();
+    return keys
       .map(k => `${k}:${data[k]}`)
       .join("|");
   }
