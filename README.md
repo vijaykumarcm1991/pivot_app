@@ -11,7 +11,8 @@ mailing.
 
 | Commit    | Description                                                                                       |
 | --------- | ------------------------------------------------------------------------------------------------- |
-| (latest)  | **Phase 7 — Excel-like pivot enhancements**: expand / collapse row groups, Repeat Item Labels (Tabular Form), real subtotal rows at the second-to-last row-field level, column totals pinned beneath the grand total, conditional formatting (gt / lt / eq / top 10 / bottom 10 / duplicates), number formatting (integer / decimal / currency / percentage / thousands), date formatting (yyyy-mm-dd / dd-mm-yyyy / MMM yyyy / MMMM yyyy / quarter / year), freeze columns, hide / show columns, auto-fit column widths, copy to clipboard (TSV → Excel), print view (title + dataset + table + totals + date), responsive polish. 16/16 manual tests pass. |
+| (latest)  | **Phase 8 — Production-ready hardening**: Application Settings page (`/settings`), `GET /health` endpoint, rotating-file logging + SQLite mirror + Log Viewer page (`/logs`), friendly 400/403/404/500 error pages, three-layer file validation (extension / MIME / magic bytes), runtime-configurable max upload size, Diagnostics page (`/diagnostics`), Admin Cleanup utility (`/admin/cleanup`), Delete Audit page (`/admin/audit`), **Delete Records** feature on the Pivot page with **soft delete** (records disappear from pivot / drill-down / exports / email attachments without changing the existing workflow), automatic pivot refresh after delete, in-process metadata cache with auto-invalidation, draft recovery (pivot config auto-saved to localStorage; restore banner on next page open), better loading overlays + double-click guard on every action button. |
+| (prev)    | **Phase 7 — Excel-like pivot enhancements**: expand / collapse row groups, Repeat Item Labels (Tabular Form), real subtotal rows at the second-to-last row-field level, column totals pinned beneath the grand total, conditional formatting (gt / lt / eq / top 10 / bottom 10 / duplicates), number formatting (integer / decimal / currency / percentage / thousands), date formatting (yyyy-mm-dd / dd-mm-yyyy / MMM yyyy / MMMM yyyy / quarter / year), freeze columns, hide / show columns, auto-fit column widths, copy to clipboard (TSV → Excel), print view (title + dataset + table + totals + date), responsive polish. 16/16 manual tests pass. |
 | (prev)    | **Phase 6 — Email composition**: Send Email button on the Pivot page → composer modal (To/CC/BCC + Subject + Message) with HTML preview, .xlsx attachment, SMTP settings page, email history page, recent-recipient autocomplete, and 11 new API endpoints. The grand-total block in the email body is disabled (it was rendering blank in V1) — the pivot summary table is still rendered. |
 | (prev)    | **Phase 5 — Drill-down**: double-click or multi-select pivot rows → Bootstrap modal with raw records, dedup, search, column visibility, matching-criteria card, summary card, and reusable Excel export. |
 | (prev)    | Add view controls on `/pivot`: hidable configuration panel + fullscreen pivot result overlay.     |
@@ -21,6 +22,10 @@ mailing.
 | `7bfba51` | Fix bug: uploaded dataset not showing in pivot page dropdown (defensive init + lazy filter modal). |
 | `e645b28` | Dark mode: fix black/grey text on white background contrast issues.                               |
 | `705ef4e` | Phase 1-3 implementation + dark / light / system theme shipped.                                  |
+
+For the full V1 release notes (architecture, folder structure, schema, API,
+caching, soft-delete, logging, diagnostics, cleanup, deployment), see
+[`VERSION_1_RELEASE.md`](./VERSION_1_RELEASE.md).
 
 ## Tech Stack
 

@@ -151,30 +151,40 @@
       return;
     }
     setBusy(true, "Sending email…");
-    try {
-      const payload = buildEmailPayload();
-      const res = await fetch("/api/email/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error((data && data.detail) || "Send failed.");
+    // Phase 8 — guard against double-send. The Send button is already
+    // disabled via setBusy(), but we also capture the original label
+    // and replace it with a spinner so the user gets immediate visual
+    // feedback that the email is being dispatched.
+    if (dom.sendBtn) {
+      const origHtml = dom.sendBtn.innerHTML;
+      dom.sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending…';
+      try {
+        const payload = buildEmailPayload();
+        const res = await fetch("/api/email/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error((data && data.detail) || "Send failed.");
+        }
+        showAlert("success",
+          `Email sent successfully (history #${data.historyId}).`,
+        );
+        // Refresh suggestions so the autocomplete picks up the new
+        // addresses immediately.
+        refreshRecipientSuggestions();
+        // Disable the Send button — the user has to click Preview again
+        // to send another email.
+        dom.sendBtn.disabled = true;
+      } catch (err) {
+        showAlert("danger", "Send failed: " + err.message);
+        dom.sendBtn.innerHTML = origHtml;
+      } finally {
+        setBusy(false);
       }
-      showAlert("success",
-        `Email sent successfully (history #${data.historyId}).`,
-      );
-      // Refresh suggestions so the autocomplete picks up the new
-      // addresses immediately.
-      refreshRecipientSuggestions();
-      // Disable the Send button — the user has to click Preview again
-      // to send another email.
-      if (dom.sendBtn) dom.sendBtn.disabled = true;
-    } catch (err) {
-      showAlert("danger", "Send failed: " + err.message);
-    } finally {
-      setBusy(false);
+      return;
     }
   }
 
