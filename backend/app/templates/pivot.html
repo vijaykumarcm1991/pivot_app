@@ -1100,14 +1100,20 @@
 {# Load order matters: pivot grid wrapper, pivot export, then the controller,
    then the drill-down modules, then the email modules. The drill-down /
    email modules rely on window.PivotGrid + window.PivotExport + the pivot
-   controller's appState being available. #}
-<script src="/static/js/pivot-grid.js"></script>
-<script src="/static/js/pivot-export.js"></script>
-<script src="/static/js/pivot-display.js"></script>
-<script src="/static/js/pivot.js"></script>
-<script src="/static/js/drilldown-selection.js"></script>
-<script src="/static/js/drilldown-export.js"></script>
-<script src="/static/js/drilldown-manager.js"></script>
-<script src="/static/js/preview-manager.js"></script>
-<script src="/static/js/email-manager.js"></script>
+   controller's appState being available.
+
+   The version query string forces every browser to re-fetch the JS files
+   on page load. Without it, AG Grid's "values are showing empty" fix
+   (destroy+recreate on every render) + the soft-delete row-key fix
+   would not propagate to users who had the page open before the fixes
+   were deployed. Bump the version whenever a JS file in this list changes. #}
+<script src="/static/js/pivot-grid.js?v=2"></script>
+<script src="/static/js/pivot-export.js?v=2"></script>
+<script src="/static/js/pivot-display.js?v=2"></script>
+<script src="/static/js/pivot.js?v=2"></script>
+<script src="/static/js/drilldown-selection.js?v=2"></script>
+<script src="/static/js/drilldown-export.js?v=2"></script>
+<script src="/static/js/drilldown-manager.js?v=2"></script>
+<script src="/static/js/preview-manager.js?v=2"></script>
+<script src="/static/js/email-manager.js?v=2"></script>
 {% endblock %}
