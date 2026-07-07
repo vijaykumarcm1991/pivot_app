@@ -617,7 +617,18 @@
         cellClass,
         headerClass: isRowTotal ? "pivot-row-total-header" : null,
       };
-      if (valueFormatter) def.valueFormatter = valueFormatter;
+      // Phase 8 — always install a default valueFormatter so that
+      // `null` / `NaN` / undefined values (which AG Grid otherwise
+      // renders as a completely empty cell) are shown as a placeholder
+      // dash.  This is what the user sees after a soft delete that
+      // empties a group when the aggregation is `average` / `min` /
+      // `max` — the pandas aggregate becomes `NaN`, the JSON layer
+      // converts it to `null`, and we need to show *something* so the
+      // user understands the value is missing rather than a bug.
+      def.valueFormatter = valueFormatter || ((params) => {
+        if (isMissingValue(params.value)) return "—";
+        return params.value;
+      });
       if (Object.keys(cellClassRules).length) def.cellClassRules = cellClassRules;
       if (frozen.has(col))  def.pinned = "left";
       if (hidden.has(col))  def.hide   = true;
@@ -840,10 +851,23 @@
   }
 
   // ── Number / date / conditional formatters ────────────────────────────
+  // Treat `null` / `undefined` / non-finite numbers as "missing" and
+  // render a placeholder dash.  This used to render as an empty cell
+  // in AG Grid, which made the pivot look like "values disappeared"
+  // after a soft delete pushed the aggregate below the threshold
+  // (e.g. `average` / `min` / `max` on an empty group becomes
+  // `NaN` -> `null` after `_json_safe`).
+  function isMissingValue(v) {
+    if (v === null || v === undefined) return true;
+    if (typeof v === "number" && !Number.isFinite(v)) return true;
+    return false;
+  }
+
   function formatNumber(v, fmt) {
-    if (v === null || v === undefined || v === "") return v;
+    if (isMissingValue(v)) return "—";
+    if (v === "") return v;
     const n = Number(v);
-    if (!Number.isFinite(n)) return v;
+    if (!Number.isFinite(n)) return "—";
     switch (fmt) {
       case "integer":    return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
       case "decimal":    return n.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
@@ -855,9 +879,10 @@
   }
 
   function formatDate(v, fmt) {
+    if (isMissingValue(v)) return "—";
     if (!v) return v;
     const d = (v instanceof Date) ? v : new Date(v);
-    if (isNaN(d.getTime())) return v;
+    if (isNaN(d.getTime())) return "—";
     const m = d.getMonth();
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const monthNamesLong = ["January","February","March","April","May","June","July","August","September","October","November","December"];
