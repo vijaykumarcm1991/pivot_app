@@ -11,8 +11,9 @@ mailing.
 
 | Commit    | Description                                                                                       |
 | --------- | ------------------------------------------------------------------------------------------------- |
-| (latest)  | **Phase 8 hotfix — "values are showing empty" after Delete Records**: the AG Grid's `getRowId` was using every data key (including value columns) and the Phase 4 "reuse the existing instance" pattern silently lost columns on re-render. Fix: `buildRowId` now excludes value fields so the row ID is stable for the same pivot row across re-renders, and `render()` now destroys + recreates the AG Grid instance on every re-render (heavier but guaranteed to match the new columnDefs; user selection is preserved across the recreate). |
-| (prev)    | **Phase 8 fix — null/NaN pivot values**: default valueFormatter on every column now returns `"—"` for `null` / `undefined` / non-finite numbers (e.g. `average`/`min`/`max` on an empty group after a soft delete). |
+| (latest)  | **Phase 8 hotfix #3 — "deleted row reappears after refresh"**: the soft-delete service and the pivot engine each computed a per-row `source_key` SHA-256 for the soft-delete filter, but the two implementations drifted — the writer saw JSON `null` (drilldown response) and the reader saw `NaN` (pandas re-read), so the hashes never matched and every soft-deleted row leaked back into the next pivot. Fix: shared module `backend/app/services/row_keys.py` with a single `row_source_key()` helper that normalises every value (`None` / `NaN` / `NaT` / `''` all collapse to `None`; datetimes to ISO) before hashing. Regression test: `/tmp/jsm_api2.py` runs the user's exact 16-step scenario against the real JSM CSV and asserts the ZABBIX row is gone after a delete. |
+| (prev)    | **Phase 8 hotfix #2 — "values are showing empty" after Delete Records refresh**: the AG Grid's `getRowId` was using every data key (including value columns) and the Phase 4 "reuse the existing instance" pattern silently lost columns on re-render. Fix: `buildRowId` now excludes value fields so the row ID is stable for the same pivot row across re-renders, and `render()` now destroys + recreates the AG Grid instance on every re-render (heavier but guaranteed to match the new columnDefs; user selection is preserved across the recreate). |
+| (prev)    | **Phase 8 hotfix #1 — null/NaN pivot values**: default valueFormatter on every column now returns `"—"` for `null` / `undefined` / non-finite numbers (e.g. `average`/`min`/`max` on an empty group after a soft delete). |
 | (prev)    | **Phase 8 — Production-ready hardening**: Application Settings page (`/settings`), `GET /health` endpoint, rotating-file logging + SQLite mirror + Log Viewer page (`/logs`), friendly 400/403/404/500 error pages, three-layer file validation (extension / MIME / magic bytes), runtime-configurable max upload size, Diagnostics page (`/diagnostics`), Admin Cleanup utility (`/admin/cleanup`), Delete Audit page (`/admin/audit`), **Delete Records** feature on the Pivot page with **soft delete** (records disappear from pivot / drill-down / exports / email attachments without changing the existing workflow), automatic pivot refresh after delete, in-process metadata cache with auto-invalidation, draft recovery (pivot config auto-saved to localStorage; restore banner on next page open), better loading overlays + double-click guard on every action button. |
 | (prev)    | **Phase 7 — Excel-like pivot enhancements**: expand / collapse row groups, Repeat Item Labels (Tabular Form), real subtotal rows at the second-to-last row-field level, column totals pinned beneath the grand total, conditional formatting (gt / lt / eq / top 10 / bottom 10 / duplicates), number formatting (integer / decimal / currency / percentage / thousands), date formatting (yyyy-mm-dd / dd-mm-yyyy / MMM yyyy / MMMM yyyy / quarter / year), freeze columns, hide / show columns, auto-fit column widths, copy to clipboard (TSV → Excel), print view (title + dataset + table + totals + date), responsive polish. 16/16 manual tests pass. |
 | (prev)    | **Phase 6 — Email composition**: Send Email button on the Pivot page → composer modal (To/CC/BCC + Subject + Message) with HTML preview, .xlsx attachment, SMTP settings page, email history page, recent-recipient autocomplete, and 11 new API endpoints. The grand-total block in the email body is disabled (it was rendering blank in V1) — the pivot summary table is still rendered. |
@@ -986,6 +987,58 @@ grid re-render path.
 
 `api.setColumnPinned(key, pinned)` should be `api.setColumnsPinned([key], pinned)`.
 Not broken yet but emits a console warning.
+
+### Soft-delete row key — writer and reader must share a hash function
+
+**Symptom**: after clicking **Delete Records**, the pivot recomputes
+but the deleted row reappears. Confirmed with the user's exact
+16-step scenario from `test` (against the real JSM CSV with 3440
+rows, deleting the ZABBIX ROBI-BD-RBT ivrbd01 row with row_total=222):
+
+```
+BEFORE: 620 rows, 1 ZABBIX ROBI-BD-RBT ivrbd01 (row_total=222)
+Delete: matched=222, deleted=222  ← delete claims success
+AFTER:  620 rows, 1 ZABBIX ROBI-BD-RBT ivrbd01  ← row is BACK
+```
+
+**Root cause**: the soft-delete service (writer) and the pivot
+engine's `_load_dataset_sheet` (reader) each computed a per-row
+SHA-256 `source_key` for the soft-delete filter, but the two paths
+disagreed on how to serialise empty cells:
+
+- the writer received rows from the drilldown JSON response, where
+  empty cells come back as JSON `null` → Python `None`
+- the reader re-read the source file with pandas, where empty cells
+  become `NaN` (float)
+- `json.dumps(..., default=str)` on `None` → `"null"`
+- `json.dumps(..., default=str)` on `NaN` → `"NaN"`
+- the hashes never matched → every soft-deleted row was re-included
+  in the next pivot compute
+
+**Fix** (new shared module `backend/app/services/row_keys.py`):
+
+- Single `row_source_key(row)` helper used by both the soft-delete
+  service and the pivot engine
+- Normalises every value before hashing: `None` / `NaN` / `NaT` /
+  `''` all collapse to `None`; datetimes to ISO string;
+  everything else as-is
+- Now the writer and reader always produce the same hash for the
+  same underlying row, regardless of whether it came from a JSON
+  response or a pandas DataFrame
+
+**Regression test**: `/tmp/jsm_api2.py` runs the user's exact
+16-step scenario against the real JSM CSV via FastAPI TestClient
+and asserts that AFTER a delete, the ZABBIX row is gone (0 matches)
+and the audit log shows success. After the fix:
+
+```
+BEFORE: 620 rows, 1 ZABBIX ROBI-BD-RBT ivrbd01 (row_total=222)
+Delete: matched=222, deleted=222
+AFTER:  619 rows, 0 ZABBIX ROBI-BD-RBT ivrbd01  ← FIXED
+```
+
+Keep this test around and re-run it whenever touching the soft-delete
+or row-keys code.
 
 ## How the theme system works
 
