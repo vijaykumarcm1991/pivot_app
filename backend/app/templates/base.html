@@ -190,6 +190,11 @@
   <!-- Theme manager — must load after DOM (uses addEventListener) -->
   <script src="/static/js/theme.js"></script>
 
+  <!-- Date / time formatter in IST — every visible timestamp in the
+       app is shown in Indian Standard Time (the user explicitly
+       asked for this). Exposes `window.AppFormat.ist(...)` etc. -->
+  <script src="/static/js/format.js"></script>
+
   {% block scripts %}{% endblock %}
 </body>
 </html>

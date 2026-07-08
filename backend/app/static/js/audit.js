@@ -84,8 +84,11 @@
         .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
     function escAttr(s) { return escHtml(s); }
+    // IST-formatted timestamp — the user asked for every visible
+    // timestamp in the app to be in Indian Standard Time.
     function formatDate(iso) {
-      try { return new Date(iso).toLocaleString(); } catch (_) { return iso || ""; }
+      const f = (window.AppFormat && window.AppFormat.ist) || (s => s || "");
+      return f(iso);
     }
   }
 })();

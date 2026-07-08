@@ -188,12 +188,12 @@
 
     function formatDate(iso) {
       if (!iso) return "—";
-      try {
-        const d = new Date(iso);
-        return d.toLocaleString();
-      } catch (_) {
-        return iso;
-      }
+      // The backend exposes `sentAtIst` (an ISO-8601 string in
+      // Asia/Kolkata with the +05:30 offset).  Pass it to
+      // AppFormat.ist() so the user sees the same "08 Jul 2026,
+      // 14:32 IST" format the rest of the app uses.
+      const f = (window.AppFormat && window.AppFormat.ist) || (s => s || "");
+      return f(iso);
     }
 
     function truncate(s, n) {

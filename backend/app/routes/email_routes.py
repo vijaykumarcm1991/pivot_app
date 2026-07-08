@@ -50,6 +50,7 @@ from app.services.email_service import (
 )
 from app.services.attachment_service import attachment_disk_path
 from app.services.smtp_service import SMTPError, is_complete, send_email
+from app.utils.tz import iso_ist
 
 
 router = APIRouter()
@@ -181,6 +182,10 @@ def api_email_preview(payload: EmailSendRequest, db: Session = Depends(get_db)):
         dataset_name=result.dataset_name,
         sheet_name=result.sheet_name,
         generated_at=result.generated_at.isoformat(),
+        # The user asked for every visible timestamp in the app
+        # to be in IST — include the ISO-8601-in-IST string so the
+        # frontend can display it directly.
+        generated_at_ist=iso_ist(result.generated_at),
     )
 
 
@@ -197,6 +202,8 @@ def api_email_send(payload: EmailSendRequest, db: Session = Depends(get_db)):
         history_id=result["history_id"],
         status=result["status"],
         sent_at=result["sent_at"],
+        # IST-formatted ISO-8601 string for the frontend.
+        sent_at_ist=iso_ist(result.get("sent_at_dt")) if result.get("sent_at_dt") else iso_ist(datetime.utcnow()),
         error_message=None,
     )
 

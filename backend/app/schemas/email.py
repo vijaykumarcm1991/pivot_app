@@ -29,6 +29,8 @@ class SMTPSettingsOut(BaseModel):
     sender_name: str = Field(alias="senderName")
     sender_email: str = Field(alias="senderEmail")
     updated_at: Optional[str] = Field(default=None, alias="updatedAt")
+    # IST-formatted ISO-8601 string for the frontend.
+    updated_at_ist: Optional[str] = Field(default=None, alias="updatedAtIst")
 
 
 class SMTPSettingsIn(BaseModel):
@@ -131,6 +133,8 @@ class EmailPreviewResponse(BaseModel):
     dataset_name: str = Field(alias="datasetName")
     sheet_name: str = Field(alias="sheetName")
     generated_at: str = Field(alias="generatedAt")
+    # IST-formatted ISO-8601 string for the frontend.
+    generated_at_ist: Optional[str] = Field(default=None, alias="generatedAtIst")
 
 
 class EmailSendResponse(BaseModel):
@@ -142,6 +146,8 @@ class EmailSendResponse(BaseModel):
     status: str
     error_message: Optional[str] = Field(default=None, alias="errorMessage")
     sent_at: str = Field(alias="sentAt")
+    # IST-formatted ISO-8601 string for the frontend.
+    sent_at_ist: Optional[str] = Field(default=None, alias="sentAtIst")
 
 
 # ── Email history ────────────────────────────────────────────────────────
@@ -151,6 +157,11 @@ class EmailHistoryOut(BaseModel):
 
     id: int
     sent_at: str = Field(alias="sentAt")
+    # IST-formatted ISO-8601 string for the frontend (e.g.
+    # "2026-07-08T14:32:33+05:30").  The frontend can either render
+    # this directly or pass it to AppFormat.ist() for a human-
+    # readable label.
+    sent_at_ist: Optional[str] = Field(default=None, alias="sentAtIst")
     subject: str
     to_addresses: List[str] = Field(alias="toAddresses")
     cc_addresses: List[str] = Field(alias="ccAddresses")
@@ -174,4 +185,6 @@ class RecentRecipientOut(BaseModel):
     address: str
     recipient_type: str = Field(alias="recipientType")
     last_used_at: str = Field(alias="lastUsedAt")
+    # IST-formatted ISO-8601 string for the frontend.
+    last_used_at_ist: Optional[str] = Field(default=None, alias="lastUsedAtIst")
     use_count: int = Field(alias="useCount")

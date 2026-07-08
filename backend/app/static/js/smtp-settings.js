@@ -177,12 +177,9 @@
     }
 
     function formatDate(iso) {
-      try {
-        const d = new Date(iso);
-        return d.toLocaleString();
-      } catch (_) {
-        return iso;
-      }
+      if (!iso) return "—";
+      const f = (window.AppFormat && window.AppFormat.ist) || (s => s || "");
+      return f(iso);
     }
   }
 })();

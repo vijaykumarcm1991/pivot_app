@@ -1799,7 +1799,12 @@
     }
     if (draftBanner) {
       if (draftMeta) {
-        const when = draft.savedAt ? new Date(draft.savedAt).toLocaleString() : "";
+        // The user asked for every visible timestamp in the app to
+        // be in IST (Indian Standard Time) — same convention as the
+        // rest of the admin pages.
+        const when = draft.savedAt
+          ? (window.AppFormat ? window.AppFormat.ist(draft.savedAt) : new Date(draft.savedAt).toLocaleString())
+          : "";
         draftMeta.textContent = `Last saved ${when} · dataset id ${draft.datasetId}`;
       }
       draftBanner.classList.remove("d-none");

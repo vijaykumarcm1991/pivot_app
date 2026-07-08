@@ -11,7 +11,6 @@ import os
 import platform
 import shutil
 import sqlite3
-from datetime import datetime
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, Request
@@ -26,6 +25,7 @@ from app.models.app_settings import APP_VERSION
 from app.repositories import dataset_repository, smtp_settings_repository
 from app.services.smtp_service import is_complete
 from app.services.app_logging import log_event
+from app.utils.tz import iso_ist, now_ist
 
 
 router = APIRouter()
@@ -114,7 +114,11 @@ def health(db: Session = Depends(get_db)) -> Dict[str, Any]:
     return {
         "status":         overall,
         "version":        APP_VERSION,
-        "currentTime":    datetime.utcnow().isoformat() + "Z",
+        # The user asked for every visible timestamp in the app to
+        # be in IST — use the same helper the rest of the app
+        # uses.  The ISO-8601 string now includes the IST offset so
+        # the frontend can parse it correctly.
+        "currentTime":    iso_ist(now_ist()),
         "database":       db_status,
         "uploadsFolder":  uploads,
         "reportsFolder":  reports,
@@ -179,7 +183,8 @@ def _collect_diagnostics(db: Session) -> Dict[str, Any]:
         },
         "health": {
             "status":     "ok" if db_status.get("ok") else "down",
-            "checkedAt":  datetime.utcnow().isoformat() + "Z",
+            # Same IST convention as the rest of the app.
+            "checkedAt":  iso_ist(now_ist()),
         },
         "database":    db_status,
         "folders":     {

@@ -28,7 +28,12 @@ class AppSettings(Base):
     id                  = Column(Integer, primary_key=True, default=1)
     application_name    = Column(String, nullable=False, default="Pivot App")
     company_name        = Column(String, nullable=False, default="")
-    timezone            = Column(String, nullable=False, default="UTC")
+    # Default timezone is Asia/Kolkata (IST) — the user explicitly
+    # asked for every visible timestamp in the app to be in IST.
+    # The Settings page still allows the user to override this to
+    # any IANA name or fixed offset (e.g. "UTC", "Asia/Singapore",
+    # "+05:30") if they ever need to.
+    timezone            = Column(String, nullable=False, default="Asia/Kolkata")
     max_upload_bytes    = Column(BigInteger, nullable=False, default=50 * 1024 * 1024)
     default_export_dir  = Column(String, nullable=False, default="")
     updated_at          = Column(DateTime, default=datetime.utcnow,

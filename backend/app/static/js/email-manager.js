@@ -279,7 +279,12 @@
     return `Pivot report — ${dataset} / ${meta.sheet_name || ""}`.trim();
   }
   function defaultMessage() {
-    return "Hello team,\n\nPlease find the pivot summary below.\n\nThe detailed drill-down report is attached.\n\nRegards,";
+    // The user has explicitly asked for this template — don't change
+    // it without their say-so.  The opening and closing quotes
+    // are curly (’— U+2019) to match the user's spec exactly.
+    // Newlines are preserved in the rendered email body
+    // (see _message_to_html in the backend).
+    return "Hello Team,\n\nWe\u2019ve been consistently receiving alerts related to the following issue types on a daily basis. Kindly investigate the root cause and take necessary action to resolve them permanently.\n\nRegards,";
   }
 
   // ── UI helpers ─────────────────────────────────────────────────────

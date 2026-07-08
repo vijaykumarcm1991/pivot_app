@@ -538,7 +538,11 @@
     const meta  = (lastResponse && lastResponse.metadata) || {};
     const ctx   = lastContext || {};
     const title = `Pivot — ${ctx.datasetName || "dataset"} (${ctx.sheetName || meta.sheet_name || ""})`;
-    const dateStr = new Date().toLocaleString();
+    // Use the IST formatter for the "Generated" column so the
+    // export header matches every other timestamp in the app.
+    const dateStr = (window.AppFormat && window.AppFormat.ist)
+      ? window.AppFormat.ist(new Date())
+      : new Date().toLocaleString();
     const headerCells = cols.map(c => `<th>${escHtml(c.headerName || c.field)}</th>`).join("");
     const bodyRows = rows.map(r => {
       const cells = cols.map(c => `<td>${escHtml(_formatCell(r[c.field]))}</td>`).join("");

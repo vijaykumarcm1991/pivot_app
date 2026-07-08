@@ -19,6 +19,7 @@ from app.models.email_history import EmailHistory
 from app.models.recent_recipient import RecentRecipient
 from app.repositories import email_history_repository
 from app.config.settings import REPORTS_DIR
+from app.utils.tz import iso_ist, format_ist
 
 
 def serialize_history(row: EmailHistory) -> Dict[str, Any]:
@@ -31,9 +32,15 @@ def serialize_history(row: EmailHistory) -> Dict[str, Any]:
         row.attachment_path
         and os.path.exists(os.path.join(REPORTS_DIR, row.attachment_path))
     )
+    # ``sent_at_ist`` is the human-readable IST string the frontend
+    # passes to ``AppFormat.ist`` (or renders directly).  We send
+    # both the ISO-8601-in-IST string (machine-friendly) and the
+    # formatted string (display-friendly) so the frontend never has
+    # to guess the timezone.
     return {
         "id": row.id,
         "sent_at": row.sent_at.isoformat() if row.sent_at else "",
+        "sent_at_ist": iso_ist(row.sent_at),
         "subject": row.subject or "",
         "to_addresses": to_addrs,
         "cc_addresses": cc_addrs,
@@ -67,6 +74,7 @@ def serialize_recent_recipient(row: RecentRecipient) -> Dict[str, Any]:
         "address": row.address,
         "recipient_type": row.recipient_type,
         "last_used_at": row.last_used_at.isoformat() if row.last_used_at else "",
+        "last_used_at_ist": iso_ist(row.last_used_at),
         "use_count": int(row.use_count or 0),
     }
 

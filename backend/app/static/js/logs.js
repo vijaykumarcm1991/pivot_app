@@ -80,7 +80,8 @@
     }
 
     function formatDate(iso) {
-      try { return new Date(iso).toLocaleString(); } catch (_) { return iso || ""; }
+      const f = (window.AppFormat && window.AppFormat.ist) || (s => s || "");
+      return f(iso);
     }
   }
 })();

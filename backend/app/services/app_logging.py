@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.config.settings import LOG_DIR
 from app.config.database import SessionLocal
 from app.models.app_log import AppLog
+from app.utils.tz import iso_ist
 
 
 # 5 MB x 5 backups ~ 25 MB max on disk
@@ -247,6 +248,8 @@ def search_logs(
             {
                 "id":         r.id,
                 "timestamp":  r.timestamp.isoformat() if r.timestamp else None,
+                # IST-formatted ISO-8601 string for the frontend.
+                "timestamp_ist": iso_ist(r.timestamp),
                 "level":      r.level,
                 "category":   r.category,
                 "message":    r.message,

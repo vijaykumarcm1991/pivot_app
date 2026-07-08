@@ -30,6 +30,7 @@ from app.repositories.dataset_repository import (
 )
 from app.utils.file_utils import generate_stored_filename, build_upload_path
 from app.utils.file_validation import FileValidationError, perform_full_validation
+from app.utils.tz import format_ist
 from app.services.app_logging import log_event
 
 router = APIRouter()
@@ -52,6 +53,11 @@ async def upload_page(request: Request):
 async def datasets_page(request: Request, db: Session = Depends(get_db)):
     """Render the list of all uploaded datasets."""
     datasets = get_all_datasets(db)
+    # The user asked for every visible timestamp in the app to be
+    # in IST — pre-format ``upload_time`` here so the Jinja
+    # template can render it directly without doing tz math.
+    for ds in datasets:
+        ds.upload_time_ist = format_ist(ds.upload_time)
     return templates.TemplateResponse(
         "datasets.html", {"request": request, "datasets": datasets}
     )
@@ -63,6 +69,10 @@ async def preview_page(request: Request, dataset_id: int, db: Session = Depends(
     dataset = get_dataset_by_id(db, dataset_id)
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Pre-format ``upload_time`` in IST so the Jinja template
+    # can render it directly.
+    dataset.upload_time_ist = format_ist(dataset.upload_time)
 
     # Re-parse to get sheet metadata and preview rows
     filepath = build_upload_path(dataset.stored_filename, UPLOAD_DIR)

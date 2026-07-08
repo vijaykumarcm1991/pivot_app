@@ -56,6 +56,7 @@ from app.services.row_keys import row_source_key
 from app.schemas.pivot import PivotDrilldownRequest, PivotValue
 from app.services import metadata_cache
 from app.services.app_logging import log_event
+from app.utils.tz import iso_ist
 
 
 class SoftDeleteError(ValueError):
@@ -266,6 +267,8 @@ def list_audit(
         {
             "id":                     r.id,
             "timestamp":              r.timestamp.isoformat() if r.timestamp else None,
+            # IST-formatted ISO-8601 string for the frontend.
+            "timestamp_ist":          iso_ist(r.timestamp),
             "datasetId":              r.dataset_id,
             "datasetName":            r.dataset_name or "",
             "sheetName":              r.sheet_name or "",
