@@ -1,0 +1,38 @@
+The following pivot rows will be removed from the result, and the raw source records behind them will be soft-deleted. The deleted records will no longer appear in the pivot, drill-down, exports, or email attachments.
+
+Dataset: JSM_Weekly_Report_29Jun2026_to_05Jul2026.csv
+Sheet: Sheet1
+Pivot rows: 1
+Selection criteria:
+
+[
+  {
+    "pivotRow": {
+      "Issue_Category": "DISK SPACE",
+      "Key | 2026-06-29": 134,
+      "Key | 2026-06-30": 264,
+      "Key | 2026-07-01": 67,
+      "Key | 2026-07-02": 145,
+      "Key | 2026-07-03": 97,
+      "Key | 2026-07-04": 101,
+      "Key | 2026-07-05": 112,
+      "__level": 0,
+      "__parentKey": "",
+      "row_total": 920
+    },
+    "selection": {
+      "Issue_Category": "DISK SPACE",
+      "Key | 2026-06-29": 134,
+      "Key | 2026-06-30": 264,
+      "Key | 2026-07-01": 67,
+      "Key | 2026-07-02": 145,
+      "Key | 2026-07-03": 97,
+      "Key | 2026-07-04": 101,
+      "Key | 2026-07-05": 112,
+      "__level": 0
+    }
+  }
+]
+
+ 3,440 source record(s) will be soft-deleted from 1 pivot row(s). HUGE
+ This is a very large delete. Please review the selection criteria above carefully before confirming.

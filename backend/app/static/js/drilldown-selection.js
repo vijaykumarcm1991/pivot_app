@@ -60,10 +60,22 @@
     const rowTotalField = totals.row_total_field || "row_total";
 
     // Build a set of "do not include" keys.
+    // We must skip EVERY value field, not just the labels.  The
+    // columns when the user picks a `columns:` field + a date
+    // grouping are formatted as `<label> | <grouping_value>`
+    // (e.g. "Key | 2026-06-29") and the labels (e.g. "count_Key")
+    // won't match those keys, so the previous code accidentally
+    // included them in the selection.  Now we also skip every key
+    // that contains `|` (the column-grouping marker) and every
+    // column that's NOT in the row fields list.
     const valueLabels = new Set();
     aggs.forEach(a => {
       if (a && a.label) valueLabels.add(a.label);
     });
+
+    // The user-configured row fields.  Anything that's NOT a row
+    // field is a value or a marker and must be excluded.
+    const rowFields = new Set(meta.rows || []);
 
     const selection = {};
     Object.keys(pivotRow).forEach(key => {
@@ -73,6 +85,18 @@
       if (key === "_warning")         return;
       if (key.indexOf("__pivot_") === 0) return;
       if (valueLabels.has(key))       return;
+      // Phase 8 (safety) — skip value / date-grouping columns.
+      // A value column appears in the pivot row as
+      // "<label> | <grouping_value>" (e.g. "count_Key | 2026-06-29").
+      // The label part may or may not match the aggregation label
+      // (depending on how the column name is built) so we catch
+      // both the explicit label match above and the `|` separator
+      // here.
+      if (key.indexOf("|") >= 0)     return;
+      // And skip anything that's not a configured row field.  This
+      // is the belt-and-braces catch-all for any future column type
+      // we add (e.g. compact-mode "Rows" merged column).
+      if (rowFields.size > 0 && !rowFields.has(key)) return;
 
       const value = pivotRow[key];
       // Drop null / empty values — they would never match anyway.
