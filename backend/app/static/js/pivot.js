@@ -1543,8 +1543,13 @@
         showError("Select at least one data row (not a totals row) to delete.");
         return;
       }
+      // buildSelectionList returns [{pivotRow, selection}] but the
+      // delete-records API expects plain [{field: value}] maps.
+      // Extract .selection from each entry so the backend's
+      // _apply_selection can match the keys against DataFrame columns.
       const selections = (window.DrilldownSelection
         ? window.DrilldownSelection.buildSelectionList(dataRows, appState.lastResponse)
+            .map(entry => entry.selection || {})
         : dataRows.map(r => {
             const sel = {};
             (appState.rows || []).forEach(f => { sel[f] = r[f]; });

@@ -1008,11 +1008,24 @@ def _apply_selection(
     df: pd.DataFrame, selection: Dict[str, Any], grouped_labels: Dict[str, str]
 ) -> pd.DataFrame:
     matched = df
+    applied_any = False
     for field, expected in selection.items():
         match_field = _selection_field_name(field, grouped_labels)
         if match_field not in matched.columns:
+            # Unknown field — skip it, but do NOT silently return all
+            # rows if NONE of the selection fields match.  This can
+            # happen when the caller sends a wrapper object (e.g.
+            # {pivotRow: ..., selection: ...}) instead of a flat
+            # {field: value} map.
             continue
         matched = matched[matched[match_field].astype(str) == str(expected)]
+        applied_any = True
+    # Safety: if no selection field matched any column, the selection
+    # was effectively empty and we must NOT return all rows.  Return
+    # an empty DataFrame instead so the caller sees 0 matches rather
+    # than the entire dataset.
+    if selection and not applied_any:
+        return df.iloc[0:0]
     return matched
 
 
