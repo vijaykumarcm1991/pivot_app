@@ -1,0 +1,38 @@
+i have followed below steps in the same order
+
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+opened new incognito mode browser session
+login to the application.
+deleted old csv dataset.
+uploaded the same csv file again - JSM_Weekly_Report_29Jun2026_to_05Jul2026.csv
+it's also available in /tmp path
+selected issue_category in rows
+selected key as count in values
+calculated pivot table, and sorted row_total in descending order in pivot table
+tried to delete first pivot row which is "Dish Space"
+i'm getting below information in delete records window
+
+Dataset: JSM_Weekly_Report_29Jun2026_to_05Jul2026.csv
+Sheet: Sheet1
+Pivot rows: 1
+Selection criteria:
+[
+  {
+    "pivotRow": {
+      "Issue_Category": "DISK SPACE",
+      "count_Key": 920,
+      "__level": 0,
+      "__parentKey": ""
+    },
+    "selection": {
+      "Issue_Category": "DISK SPACE"
+    }
+  }
+]
+
+ 3,440 source record(s) will be soft-deleted from 1 pivot row(s). HUGE
+ This is a very large delete. Please review the selection criteria above carefully before confirming.
+
+tool is still tryting to delete 3440 records instead of 920 records which is the count of the first pivot row. I have also checked the source csv file and it has only 920 records for "DISK SPACE" issue category.
