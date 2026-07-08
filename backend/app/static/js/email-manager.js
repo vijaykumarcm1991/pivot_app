@@ -35,6 +35,13 @@
   let dom = null;
   let lastPreview = null; // last EmailPreviewResponse from the server
 
+  // Eagerly initialise so the recipient typeahead is wired up
+  // before the user clicks the Send Email button.  `init()` is
+  // idempotent (it has the `init._done` guard) and all the
+  // `dom.X` lookups fall through to "no-op" if the email modal
+  // markup is not on the current page (e.g. /settings, /logs).
+  init();
+
   function init() {
     if (init._done) return;
     init._done = true;
@@ -63,6 +70,17 @@
     if (dom.previewBtn)  dom.previewBtn.addEventListener("click", onPreview);
     if (dom.sendBtn)     dom.sendBtn.addEventListener("click", onSend);
     if (dom.resetBtn)    dom.resetBtn.addEventListener("click", onReset);
+
+    // Attach the typeahead to the recipient inputs at init time so
+    // the dropdown is wired and listening the moment the modal is
+    // opened (or, for click-outside, the moment the user clicks
+    // anywhere on the page).  These attach calls read the DOM refs
+    // we just looked up; if the modal markup isn't in the page
+    // (e.g. on a page other than /pivot), the corresponding input
+    // will be null and attachTypeahead() no-ops.
+    if (dom.toInput)  attachTypeahead(dom.toInput,  "to");
+    if (dom.ccInput)  attachTypeahead(dom.ccInput,  "cc");
+    if (dom.bccInput) attachTypeahead(dom.bccInput, "bcc");
   }
 
   function open() {
@@ -660,11 +678,6 @@
     inputEl.dispatchEvent(new Event("input", { bubbles: true }));
     inputEl.focus();
   }
-
-  // Attach the typeahead to all three recipient inputs.
-  attachTypeahead(dom.toInput,  "to");
-  attachTypeahead(dom.ccInput,  "cc");
-  attachTypeahead(dom.bccInput, "bcc");
 
   // ── Public API ────────────────────────────────────────────────────
   window.EmailManager = {
