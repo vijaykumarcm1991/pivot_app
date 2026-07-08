@@ -11,7 +11,10 @@ mailing.
 
 | Commit    | Description                                                                                       |
 | --------- | ------------------------------------------------------------------------------------------------- |
-| (latest)  | `f6501e4` / `6fbafab` — **fix (safety, follow-up)**: bumped the JS cache-bust to `?v=4`. The user reported that the modal still showed "3,440 source record(s)" after rebuilding with `docker compose build --no-cache` — the live API returns `matched: 920` for the DISK SPACE selection, and the modal text the user pasted is from the NEW code, so the discrepancy was a stale browser cache. `?v=4` forces a fresh fetch of `pivot.js` on the next page load. Also removed the temporary `log_event()` debug calls from the dry-run endpoint. |
+| (latest)  | `fix(admin+email)`: Log Viewer 500 + Send Email stuck on "Sending…". The `/logs` page was passing `request=None` to `templates.TemplateResponse(...)` which threw `AttributeError: 'NoneType' object has no attribute 'get'` at render time — fixed by declaring a proper `Request` parameter on the route handler. The Send Email button was stuck on the "Sending…" spinner because the original label was only restored in the error branch — restructured to always restore the label in the `finally` block. Also hardened `email-manager.js` to handle non-JSON responses gracefully (the "JSON.parse: unexpected character" error). |
+| (prev)    | `fix(email)`: Email Preview "JSON.parse: unexpected character" error. Two related bugs: (1) `main.py` exception handlers always returned the friendly HTML error page, even for `/api/*` requests — fixed to return `JSONResponse` when the path starts with `/api/`. (2) `PivotAppState()` was overwriting `payload.columns` with the full dataset column list — now exposed as a separate `availableColumns` field. |
+| (prev)    | `fix(safety)`: extract `.selection` from `buildSelectionList` before sending to delete-records API. `DrilldownSelection.buildSelectionList()` returns `[{pivotRow, selection}]` but the API expected `[{field: value}]`. The wrapper object's keys (`pivotRow` / `selection`) never matched any DataFrame column, so `_apply_selection` silently skipped ALL filters and soft-deleted every row in the dataset. Fix: `.map(entry => entry.selection)` in pivot.js + backend safety net in `_apply_selection` that returns an empty DataFrame if no filter matched any column. Cache-bust bumped to `?v=5`. |
+| (prev)    | `f6501e4` / `6fbafab` — **fix (safety, follow-up)**: bumped the JS cache-bust to `?v=4`. The user reported that the modal still showed "3,440 source record(s)" after rebuilding with `docker compose build --no-cache` — the live API returns `matched: 920` for the DISK SPACE selection, and the modal text the user pasted is from the NEW code, so the discrepancy was a stale browser cache. `?v=4` forces a fresh fetch of `pivot.js` on the next page load. Also removed the temporary `log_event()` debug calls from the dry-run endpoint. |
 | (prev)    | `cf743c2` — **fix (safety)**: `Delete Records` on the Pivot page now runs a **dry-run preview** before the actual delete. The modal shows the actual **source-record count** that will be soft-deleted (not just the pivot row count), tags deletes > 500 records as `LARGE` and > 2000 as `HUGE` with explicit warnings, and disables the Confirm button if the count is 0. Prevents the "I selected 1 row but it deleted the entire dataset" failure mode when AG Grid's multi-row selection picks up more rows than the user expected. |
 | (prev)    | `737cd93` / `7d2fc9c` — **fix (safety)**: the soft-delete selection was including **value columns** (e.g. `count_Key | 2026-06-29` from a date-grouped column) alongside the row field. The previous code only skipped keys that exactly matched the aggregation label, so column-grouped keys leaked through and the modal showed a noisy 8-key selection instead of the single `{Issue_Category: 'DISK SPACE'}` the user expected. `buildSelectionForRow` now strips every column-grouped key (any key containing `|`) and any key not in the configured `rowFields` set. Bumped the JS cache-bust to `?v=3` so a stale browser stops loading the old `pivot.js`. |
 | (prev)    | `9f4524a` — **fix**: auto-scroll to the AG Grid on narrow viewports after clicking Compute Pivot, so the result is always visible without manual scrolling. `bb98627` — **fix**: cache-bust the pivot page JS files (`?v=2`) so a stale browser doesn't keep loading the old `pivot.js` / `pivot-grid.js` after a deploy. |
@@ -404,6 +407,14 @@ Local app URL: <http://localhost:8000>
 | `/preview/{id}` | Show dataset summary and first-sheet preview |
 | `/manage`   | Dataset Management UI (Phase 2) |
 | `/pivot`    | Pivot Builder UI (Phase 3) |
+| `/email/settings` | SMTP configuration (Phase 6) |
+| `/email/history`  | Sent emails (Phase 6) |
+| `/settings` | Application settings (Phase 8) — name, company, timezone, max upload size |
+| `/diagnostics` | System diagnostics — application, database, storage, SMTP, folders (Phase 8) |
+| `/logs`     | Log Viewer — search / filter / download the application log (Phase 8) |
+| `/admin/cleanup` | Admin Cleanup utility — preview + delete temp exports, old logs, orphans (Phase 8) |
+| `/admin/audit`   | Delete Audit — every soft-delete operation with criteria + counts (Phase 8) |
+| `/health`   | JSON health endpoint for Docker / monitoring (Phase 8) |
 | `/docs`     | Swagger API docs |
 | `/redoc`    | ReDoc API docs |
 
@@ -1043,6 +1054,119 @@ AFTER:  619 rows, 0 ZABBIX ROBI-BD-RBT ivrbd01  ← FIXED
 
 Keep this test around and re-run it whenever touching the soft-delete
 or row-keys code.
+
+### `buildSelectionList` returns wrapper objects, not flat maps — Delete Records soft-deletes ALL rows
+
+**Symptom**: clicking **Delete Records** on a single pivot row
+soft-deleted *every* row in the dataset, not just the rows
+contributing to the selected pivot row. The dry-run preview also
+showed `matched = total source rows` regardless of the selection.
+
+**Root cause**: `DrilldownSelection.buildSelectionList()` returns
+`[{pivotRow: {…}, selection: {field: value}}]` (a list of wrapper
+objects) but the delete-records API expects a flat list of
+`{field: value}` maps. The old code sent the full wrapper to
+`/api/pivot/delete-records`, so the backend's `_apply_selection()`
+iterated over the wrapper object's keys (`pivotRow`, `selection`)
+— neither exists as a column in the DataFrame, so every filter was
+silently skipped and every row was returned (and soft-deleted).
+
+**Fix** (two layers, frontend + backend safety net):
+
+1. **Frontend** (`pivot.js`):
+   ```js
+   DrilldownSelection.buildSelectionList(dataRows, lastResponse)
+     .map(entry => entry.selection || {})
+   ```
+   Extract the flat selection map from each `buildSelectionList`
+   entry before sending to the API.
+
+2. **Backend** (`pivot_service.py`): `_apply_selection()` now tracks
+   whether any filter was actually applied; if a non-empty
+   selection has **zero** fields matching any DataFrame column, it
+   returns an **empty DataFrame** instead of all rows. This prevents
+   the same class of bug from causing data loss even if the
+   frontend sends the wrong shape again.
+
+### API error pages must return JSON for `/api/*` endpoints — "JSON.parse: unexpected character"
+
+**Symptom**: clicking **Preview** in the email composer (without a
+recipient) showed `Preview failed: JSON.parse: unexpected character
+at line 1 column 1 of the JSON data`.
+
+**Root cause**: `main.py`'s 400 / 404 / 500 exception handlers always
+returned the friendly HTML error page, even for `/api/*` requests.
+The frontend's `fetch().json()` then tried to parse an HTML body
+as JSON, threw the cryptic "JSON.parse" error, and the user had no
+way to know what actually went wrong.
+
+**Fix**: in `main.py`, the 400 / 404 / 500 handlers now check
+`request.url.path.startswith("/api/")` and return a
+`JSONResponse({"detail": "..."})` instead of the HTML page. The
+friendly HTML page is preserved for browser navigation. Also
+hardened `email-manager.js` to fall back to a meaningful error
+message (`Server returned 400 (non-JSON): <snippet>`) if a future
+bug ever returns a non-JSON body again.
+
+### `PivotAppState()` must not overwrite `payload.columns`
+
+**Symptom**: email Preview was failing in some configurations.
+
+**Root cause**: `PivotAppState()` was overwriting `payload.columns`
+(which `buildPayload` correctly set to `appState.columnsGroup`)
+with the full list of dataset column names. The `EmailSendRequest`
+schema treats `columns` as pivot column fields; sending every
+dataset column could trigger unexpected behaviour downstream.
+
+**Fix**: expose the full column list as a separate
+`availableColumns` field on the payload, not by mutating
+`columns`. The Phase 7 Display Options dropdowns read
+`availableColumns`; the email endpoint sees the correct (small)
+list of pivot column fields.
+
+### Log Viewer 500 — `request=None` passed to `TemplateResponse`
+
+**Symptom**: visiting `/logs` returned the 500 error page with
+`AttributeError: 'NoneType' object has no attribute 'get'`.
+
+**Root cause**: `log_routes.logs_page()` declared no `Request`
+parameter and explicitly passed `"request": None` to
+`templates.TemplateResponse(...)`. Starlette's template rendering
+reads `request.get("extensions", {})` at render time, which threw
+on `None`.
+
+**Fix**: declare a proper `Request` parameter on the route handler
+so the real ASGI scope is passed in.
+
+### Send Email button stuck on "Sending…"
+
+**Symptom**: clicking **Send** dispatched the email successfully
+(the user received it) but the button label stayed on the
+"Sending…" spinner forever.
+
+**Root cause**: `onSend` replaced the button's `innerHTML` with a
+spinner but only restored the original label in the **error**
+branch. The success path set `disabled = true` and forgot to
+restore the label. Additionally, the whole handler was wrapped in
+`if (dom.sendBtn) { ... return; }` which silently swallowed clicks
+when the button ref was missing.
+
+**Fix**: restructured `onSend` so the original label is always
+restored in the `finally` block, regardless of success / error /
+exception. Removed the silent `if (dom.sendBtn) { ... return; }`
+wrapper — a missing button now shows a clear error message. Also
+invalidates `lastPreview` on success so a second send requires a
+fresh preview.
+
+### Log Viewer count was always 0
+
+**Symptom**: the Log Viewer rendered rows correctly but the
+`resultCount` always showed `0 record(s)`.
+
+**Root cause**: `logs.js` was reading `data.count` but the
+`/api/logs` endpoint returns `{rows: [...]}` (no `count` field).
+
+**Fix**: use `data.rows.length` instead of `data.count`.
 
 ## How the theme system works
 
