@@ -117,7 +117,21 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      // The server may return an HTML error page (e.g. from the
+      // 500 / 400 exception handler) when the request body fails
+      // validation.  res.json() on an HTML body throws
+      // "JSON.parse: unexpected character at line 1 column 1" which
+      // is confusing to the user — instead, surface the HTTP status
+      // and a snippet of the response text so the error is actionable.
+      const contentType = res.headers.get("content-type") || "";
+      let data;
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        const snippet = (text || "").slice(0, 200).replace(/\s+/g, " ").trim();
+        throw new Error(`Server returned ${res.status} (non-JSON): ${snippet || "<empty body>"}`);
+      }
       if (!res.ok) {
         throw new Error((data && data.detail) || "Preview failed.");
       }
@@ -165,7 +179,15 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const data = await res.json();
+        const contentType = res.headers.get("content-type") || "";
+        let data;
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          const text = await res.text();
+          const snippet = (text || "").slice(0, 200).replace(/\s+/g, " ").trim();
+          throw new Error(`Server returned ${res.status} (non-JSON): ${snippet || "<empty body>"}`);
+        }
         if (!res.ok) {
           throw new Error((data && data.detail) || "Send failed.");
         }

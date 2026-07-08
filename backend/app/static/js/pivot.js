@@ -767,11 +767,20 @@
   window.PivotAppState = () => {
     if (!appState.datasetId || !appState.sheetName) return null;
     const payload = buildPayload();
-    // Phase 7 — also expose the full dataset column list so the
-    // display-options dropdowns (number / date format, freeze, hide)
-    // can show every field, not just the ones currently in the
-    // pivot definition.
-    payload.columns = [...(appState.columns || []).map(c => c.name)];
+    // Phase 7 — also expose the full dataset column list as a separate
+    // field (`availableColumns`) so the display-options dropdowns
+    // (number / date format, freeze, hide) can show every field, not
+    // just the ones currently in the pivot definition.
+    //
+    // IMPORTANT: do NOT mutate `payload.columns` here.  `columns` is
+    // the pivot's column-field list (built by buildPayload from
+    // `appState.columnsGroup`); the email endpoint relies on it being
+    // a small list of pivot column fields, not the full dataset
+    // schema. Overwriting it with every column name breaks the email
+    // preview endpoint (the server treats the extra "columns" as
+    // unknown pivot column fields and returns a 422 error page that
+    // the frontend cannot parse as JSON).
+    payload.availableColumns = [...(appState.columns || []).map(c => c.name)];
     return payload;
   };
 

@@ -97,6 +97,10 @@ def _render_error_page(request: Request, status_code: int, heading: str, message
 
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
+    # API endpoints expect JSON, not the friendly HTML page.
+    if request.url.path.startswith("/api/"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
     return _render_error_page(
         request, 404,
         "Page not found",
@@ -116,6 +120,13 @@ async def forbidden_handler(request: Request, exc):
 @app.exception_handler(400)
 async def bad_request_handler(request: Request, exc):
     detail = getattr(exc, "detail", "The request could not be processed.")
+    # API endpoints expect JSON, not the friendly HTML page — the
+    # frontend's fetch().json() would throw "JSON.parse: unexpected
+    # character at line 1 column 1" if we returned HTML here.  The
+    # friendly error page is only meant for browser navigation.
+    if request.url.path.startswith("/api/"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"detail": str(detail)})
     return _render_error_page(request, 400, "Bad request", str(detail))
 
 
@@ -123,6 +134,14 @@ async def bad_request_handler(request: Request, exc):
 async def internal_error_handler(request: Request, exc):
     logger.exception("Unhandled error: %s", exc)
     log_event("error", "Unexpected error", details=str(exc), request=request)
+    # Same as above — API endpoints get JSON, browser navigations get
+    # the friendly error page.
+    if request.url.path.startswith("/api/"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
     return _render_error_page(
         request, 500,
         "Something went wrong",
