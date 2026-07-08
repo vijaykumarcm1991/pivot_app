@@ -12,10 +12,18 @@ services:
       - UPLOAD_DIR=/app/uploads
       - REPORTS_DIR=/app/generated_reports
       - DB_PATH=/app/data/pivot.db
+      - USERS_JSON_PATH=/app/users.json
     volumes:
       - uploads_data:/app/uploads
       - reports_data:/app/generated_reports
       - db_data:/app/data
+      # The user drops a fresh users.json on the host whenever
+      # the company directory changes. The container reads it
+      # read-only and the email composer's typeahead picks it up
+      # on the next request (mtime-based auto-reload). Drop the
+      # file at ./users.json (project root) and the existing mount
+      # picks it up — no rebuild required.
+      - ./users.json:/app/users.json:ro
     expose:
       - "8000"
 

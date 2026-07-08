@@ -40,3 +40,9 @@ steps
 
 # Throw-away instruction files in the project root
 /final
+
+# User directory — the user uploads this file to the project
+# root and updates it occasionally.  It's mounted into the
+# container at /app/users.json.  We don't commit the actual file
+# (it changes frequently and contains company directory data)
+/users.json

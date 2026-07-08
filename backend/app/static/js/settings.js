@@ -94,6 +94,89 @@
         </div>`;
     }
 
+    // ── User Directory card ────────────────────────────────────────
+    // Show the live status of the users.json cache + a manual
+    // reload button.  Kept in the same module because the user is
+    // most likely to look at the settings page whenever they're
+    // thinking about "who can I email".
+    const userDirStatusEl  = document.getElementById("userDirStatus");
+    const userDirReloadBtn = document.getElementById("userDirReloadBtn");
+    if (userDirStatusEl) {
+      loadUserDirectoryStatus();
+    }
+    if (userDirReloadBtn) {
+      userDirReloadBtn.addEventListener("click", async () => {
+        userDirReloadBtn.disabled = true;
+        const orig = userDirReloadBtn.innerHTML;
+        userDirReloadBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Reloading…';
+        try {
+          const res = await fetch("/api/users/reload", { method: "POST" });
+          const data = await res.json();
+          if (!res.ok) throw new Error((data && data.detail) || "Reload failed.");
+          showAlert(data.skipped ? "info" : "success", data.message || "Reloaded.");
+          await loadUserDirectoryStatus();
+        } catch (err) {
+          showAlert("danger", "Reload failed: " + err.message);
+        } finally {
+          userDirReloadBtn.disabled = false;
+          userDirReloadBtn.innerHTML = orig;
+        }
+      });
+    }
+
+    async function loadUserDirectoryStatus() {
+      if (!userDirStatusEl) return;
+      try {
+        const res = await fetch("/api/users/status");
+        if (!res.ok) throw new Error("Failed to load status.");
+        const s = await res.json();
+        renderUserDirectoryStatus(s);
+      } catch (err) {
+        userDirStatusEl.innerHTML = `<div class="alert alert-warning small mb-0">${escHtml(err.message)}</div>`;
+      }
+    }
+
+    function renderUserDirectoryStatus(s) {
+      if (!userDirStatusEl) return;
+      if (!s || s.totalUsers === 0) {
+        userDirStatusEl.innerHTML = `
+          <div class="alert alert-warning small mb-0">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            <strong>No users loaded.</strong>
+            Drop a <code>users.json</code> at
+            <code>${escHtml(s && s.path ? s.path : "/app/users.json")}</code>
+            (or the project root on the host), then click <em>Reload now</em>.
+          </div>`;
+        return;
+      }
+      const lastRel = s.loadedAtIst
+        ? (window.AppFormat ? window.AppFormat.ist(s.loadedAtIst) : s.loadedAtIst)
+        : "—";
+      userDirStatusEl.innerHTML = `
+        <ul class="list-unstyled small mb-3">
+          <li>
+            <strong>File:</strong>
+            <code title="${escHtml(s.path || "")}">${escHtml(s.path || "—")}</code>
+          </li>
+          <li>
+            <strong>Total users:</strong> ${s.totalUsers.toLocaleString()}
+          </li>
+          <li>
+            <strong>Enabled (suggestable):</strong>
+            <span class="badge bg-success-subtle text-success border">${s.enabledUsers.toLocaleString()}</span>
+          </li>
+          <li>
+            <strong>Last loaded:</strong> ${escHtml(lastRel)}
+          </li>
+        </ul>
+        <p class="small text-muted mb-0">
+          <i class="bi bi-info-circle me-1"></i>
+          Type any part of a name, email, department or job title into
+          the email composer's To / CC / BCC field and the typeahead
+          will show matching recipients.
+        </p>`;
+    }
+
     function escHtml(s) {
       return String(s)
         .replace(/&/g, "&amp;")

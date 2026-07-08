@@ -119,6 +119,31 @@
         </a>
       </div>
     </div>
+
+    <div class="card border-0 shadow-sm mt-3" id="userDirectoryCard">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span>
+          <i class="bi bi-people-fill me-2 text-info"></i>User Directory
+        </span>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="userDirReloadBtn"
+                title="Reload the users.json from disk right now (also auto-reloads on the next request)">
+          <i class="bi bi-arrow-clockwise me-1"></i>Reload now
+        </button>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-2">
+          The email composer's typeahead (To / CC / BCC) suggests recipients
+          from <code>users.json</code> in the project root.  The file is
+          auto-reloaded when it changes; click <strong>Reload now</strong>
+          after uploading a new copy.
+        </p>
+        <div id="userDirStatus">
+          <div class="text-muted small">
+            <span class="spinner-border spinner-border-sm me-2"></span>Loading status…
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="col-lg-5">

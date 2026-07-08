@@ -19,7 +19,9 @@ from app.routes.settings_routes import router as settings_router
 from app.routes.health_routes import router as health_router
 from app.routes.log_routes import router as log_router
 from app.routes.admin_routes import router as admin_router
+from app.routes.user_directory_routes import router as user_directory_router
 from app.services.app_logging import configure_logging, log_event
+from app.services import user_directory
 
 # ---------------------------------------------------------------------------
 # Logging — must be configured BEFORE anything else logs anything.
@@ -57,6 +59,7 @@ app.include_router(settings_router)
 app.include_router(health_router)
 app.include_router(log_router)
 app.include_router(admin_router)
+app.include_router(user_directory_router)
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +166,34 @@ def on_startup():
         app_settings, app_log, soft_deleted_record, delete_audit, deleted_dataset,
     )
     init_db()
+    # Load the user directory (users.json) into memory so the
+    # email composer's typeahead works on the first request.
+    # The service silently no-ops if the file is missing — the
+    # admin page tells the user how to add it.
+    try:
+        user_directory.initial_load()
+        status = user_directory.status()
+        if status["totalUsers"] > 0:
+            log_event(
+                "info",
+                "User directory loaded",
+                category="startup",
+                details=f"{status['enabledUsers']}/{status['totalUsers']} enabled users from {status['path']}",
+            )
+        else:
+            log_event(
+                "warning",
+                "User directory not loaded",
+                category="startup",
+                details=f"no users at {status['path']} (typeahead will be empty until the file is uploaded)",
+            )
+    except Exception as exc:
+        log_event(
+            "error",
+            "User directory failed to load",
+            category="startup",
+            details=str(exc),
+        )
     log_event("info", "Application started", details=f"version {__import__('app.models.app_settings', fromlist=['APP_VERSION']).APP_VERSION}")
 
 

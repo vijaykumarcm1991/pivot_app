@@ -686,46 +686,37 @@
               <div class="row g-2 mb-2">
                 <div class="col-md-12">
                   <label class="form-label small fw-bold mb-1" for="emailTo">To</label>
-                  <div class="input-group input-group-sm">
-                    <input id="emailTo" type="text" class="form-control"
-                           placeholder="alice@example.com, bob@example.com">
-                    <button class="btn btn-outline-secondary dropdown-toggle"
-                            type="button" data-bs-toggle="dropdown"
-                            aria-expanded="false" title="Recent recipients">
-                      <i class="bi bi-clock-history"></i>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" id="emailToSuggestions">
-                      <li><span class="dropdown-item text-muted small">No suggestions yet</span></li>
+                  <div class="position-relative">
+                    <input id="emailTo" type="text" class="form-control form-control-sm"
+                           placeholder="alice@example.com, bob@example.com"
+                           autocomplete="off"
+                           spellcheck="false">
+                    <ul class="dropdown-menu" id="emailToSuggestions">
+                      <li><span class="dropdown-item text-muted small">Type a name or email to search the directory</span></li>
                     </ul>
                   </div>
                 </div>
                 <div class="col-md-6">
                   <label class="form-label small fw-bold mb-1" for="emailCc">CC</label>
-                  <div class="input-group input-group-sm">
-                    <input id="emailCc" type="text" class="form-control"
-                           placeholder="carol@example.com">
-                    <button class="btn btn-outline-secondary dropdown-toggle"
-                            type="button" data-bs-toggle="dropdown"
-                            aria-expanded="false" title="Recent recipients">
-                      <i class="bi bi-clock-history"></i>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" id="emailCcSuggestions">
-                      <li><span class="dropdown-item text-muted small">No suggestions yet</span></li>
+                  <div class="position-relative">
+                    <input id="emailCc" type="text" class="form-control form-control-sm"
+                           placeholder="carol@example.com"
+                           autocomplete="off"
+                           spellcheck="false">
+                    <ul class="dropdown-menu" id="emailCcSuggestions">
+                      <li><span class="dropdown-item text-muted small">Type a name or email to search the directory</span></li>
                     </ul>
                   </div>
                 </div>
                 <div class="col-md-6">
                   <label class="form-label small fw-bold mb-1" for="emailBcc">BCC</label>
-                  <div class="input-group input-group-sm">
-                    <input id="emailBcc" type="text" class="form-control"
-                           placeholder="(optional)">
-                    <button class="btn btn-outline-secondary dropdown-toggle"
-                            type="button" data-bs-toggle="dropdown"
-                            aria-expanded="false" title="Recent recipients">
-                      <i class="bi bi-clock-history"></i>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" id="emailBccSuggestions">
-                      <li><span class="dropdown-item text-muted small">No suggestions yet</span></li>
+                  <div class="position-relative">
+                    <input id="emailBcc" type="text" class="form-control form-control-sm"
+                           placeholder="(optional)"
+                           autocomplete="off"
+                           spellcheck="false">
+                    <ul class="dropdown-menu" id="emailBccSuggestions">
+                      <li><span class="dropdown-item text-muted small">Type a name or email to search the directory</span></li>
                     </ul>
                   </div>
                 </div>
@@ -1115,5 +1106,5 @@
 <script src="/static/js/drilldown-export.js?v=2"></script>
 <script src="/static/js/drilldown-manager.js?v=2"></script>
 <script src="/static/js/preview-manager.js?v=2"></script>
-<script src="/static/js/email-manager.js?v=3"></script>
+<script src="/static/js/email-manager.js?v=4"></script>
 {% endblock %}

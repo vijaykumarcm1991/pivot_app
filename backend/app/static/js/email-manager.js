@@ -412,5 +412,264 @@
     };
   }
 
-  window.EmailManager = { open, close, getState };
+  // ── Recipient typeahead (Phase — new) ──────────────────────────────────
+  // Real-time suggestions as the user types in To / CC / BCC.
+  // The suggestions come from two sources:
+  //   1. /api/users/suggest  — the company directory (users.json)
+  //   2. /api/email/recent-recipients  — addresses the user has
+  //      actually sent to before
+  // We merge them so the most relevant rows are at the top:
+  // directory matches first (richer info: name + department),
+  // then recent recipients (so a typed address that's not in
+  // the directory still gets a clickable suggestion).
+  //
+  // The dropdown is shown on the input (not on focus) so the user
+  // gets instant feedback as they type.  Each suggestion shows
+  // the display name in bold, the email address underneath, and
+  // the department in muted text.  Clicking a suggestion inserts
+  // the email at the cursor position and re-opens the dropdown
+  // for multi-recipient entry.
+  const _suggAbort = { to: null, cc: null, bcc: null };
+  const _suggCache = new Map();  // key = `${type}:${q}` -> results[]
+
+  function menuFor(type) {
+    const id = type === "to"   ? "emailToSuggestions"   :
+                type === "cc"   ? "emailCcSuggestions"   :
+                                  "emailBccSuggestions";
+    return document.getElementById(id);
+  }
+
+  function attachTypeahead(inputEl, type) {
+    if (!inputEl) return;
+    let timer = null;
+    let lastQuery = null;
+
+    const hide = () => {
+      const menu = menuFor(type);
+      if (menu) menu.classList.remove("show");
+    };
+
+    const showMenu = (menu, html) => {
+      if (!menu) return;
+      menu.innerHTML = html;
+      menu.classList.add("show");
+      // Wire click handlers (re-built every render)
+      menu.querySelectorAll("button[data-fill-address]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          const addr = btn.getAttribute("data-fill-address");
+          insertAtCursor(inputEl, addr);
+          hide();
+          // Re-render with the new state — the just-inserted
+          // address may now be present in the suggestions list.
+          scheduleSearch();
+        });
+      });
+    };
+
+    const renderEmpty = (menu, msg) => {
+      showMenu(menu,
+        `<li><span class="dropdown-item text-muted small">${escHtml(msg)}</span></li>`
+      );
+    };
+
+    const renderResults = (menu, items) => {
+      if (!items.length) {
+        renderEmpty(menu, "No matches");
+        return;
+      }
+      const html = items.slice(0, 8).map(u => `
+        <li>
+          <button class="dropdown-item small d-flex align-items-start py-2"
+                  type="button"
+                  data-fill-address="${escAttr(u.email)}"
+                  style="white-space: normal; max-width: 100%;">
+            <i class="bi bi-person me-2 mt-1 text-primary"></i>
+            <div class="flex-grow-1">
+              <div class="fw-semibold">${escHtml(u.name || u.email)}</div>
+              <div class="small text-muted">${escHtml(u.email)}</div>
+              ${u.department || u.jobTitle
+                ? `<div class="small text-muted mt-1">
+                     <i class="bi bi-building me-1"></i>${escHtml(u.department || u.jobTitle)}
+                   </div>`
+                : ""}
+            </div>
+          </button>
+        </li>`).join("");
+      showMenu(menu, html);
+    };
+
+    const renderSectioned = (menu, sections) => {
+      // sections: [{title, icon, items}, ...] — each rendered as
+      // a labelled group.  Used when both directory + recent are
+      // non-empty.
+      const blocks = [];
+      let hasAny = false;
+      for (const s of sections) {
+        if (!s.items || !s.items.length) continue;
+        hasAny = true;
+        blocks.push(`
+          <li><h6 class="dropdown-header d-flex align-items-center">
+            <i class="bi ${s.icon} me-2"></i>${escHtml(s.title)}
+            <span class="badge bg-secondary ms-2">${s.items.length}</span>
+          </h6></li>
+          <li><hr class="dropdown-divider my-0"></li>`);
+        s.items.slice(0, 6).forEach(u => {
+          blocks.push(`
+            <li>
+              <button class="dropdown-item small d-flex align-items-start py-2"
+                      type="button"
+                      data-fill-address="${escAttr(u.email)}"
+                      style="white-space: normal; max-width: 100%;">
+                <i class="bi bi-person me-2 mt-1 text-primary"></i>
+                <div class="flex-grow-1">
+                  <div class="fw-semibold">${escHtml(u.name || u.email)}</div>
+                  <div class="small text-muted">${escHtml(u.email)}</div>
+                  ${u.department || u.jobTitle
+                    ? `<div class="small text-muted mt-1">
+                         <i class="bi bi-building me-1"></i>${escHtml(u.department || u.jobTitle)}
+                       </div>`
+                    : ""}
+                </div>
+              </button>
+            </li>`);
+        });
+      }
+      if (!hasAny) {
+        renderEmpty(menu, "No matches");
+        return;
+      }
+      showMenu(menu, blocks.join(""));
+    };
+
+    const fetchDirectory = async (q) => {
+      try {
+        if (_suggAbort[type]) _suggAbort[type].abort();
+        const ctrl = new AbortController();
+        _suggAbort[type] = ctrl;
+        const res = await fetch(
+          `/api/users/suggest?q=${encodeURIComponent(q)}&limit=8`,
+          { signal: ctrl.signal }
+        );
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data.results) ? data.results : [];
+      } catch (_) {
+        return [];
+      }
+    };
+
+    const fetchRecent = async (q) => {
+      // Recent recipients are only useful as a fallback when the
+      // directory has no match for the typed query.
+      try {
+        const res = await fetch(`/api/email/recent-recipients?limit=8`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (Array.isArray(data) ? data : []).map(r => ({
+          email: r.address,
+          name:  r.address,
+          department: "",
+          jobTitle: `${r.useCount || 0}× used (${r.recipientType || "to"})`,
+        })).filter(r => !q || r.email.toLowerCase().includes(q.toLowerCase()));
+      } catch (_) {
+        return [];
+      }
+    };
+
+    const scheduleSearch = () => {
+      clearTimeout(timer);
+      timer = setTimeout(doSearch, 120);  // debounce
+    };
+
+    const doSearch = async () => {
+      const menu = menuFor(type);
+      if (!menu) return;
+      // Extract the "current" part of the input — everything
+      // after the last comma (or semicolon) so multi-recipient
+      // entry still works.
+      const raw = (inputEl.value || "");
+      const tokens = raw.split(/[,;]\s*/);
+      const q = (tokens[tokens.length - 1] || "").trim();
+      if (q === lastQuery && menu.classList.contains("show")) return;
+      lastQuery = q;
+      if (!q) {
+        renderEmpty(menu, "Type a name or email to search the directory");
+        return;
+      }
+      // Cache hit?
+      const cacheKey = `${type}:${q}`;
+      if (_suggCache.has(cacheKey)) {
+        renderResults(menu, _suggCache.get(cacheKey));
+        return;
+      }
+      renderEmpty(menu, "Searching…");
+      // Try directory first; fall back to recent if empty.
+      const directory = await fetchDirectory(q);
+      if (directory.length > 0) {
+        _suggCache.set(cacheKey, directory);
+        renderResults(menu, directory);
+      } else {
+        // Directory empty — try recent recipients as fallback.
+        const recent = await fetchRecent(q);
+        if (recent.length > 0) {
+          renderSectioned(menu, [
+            { title: "Recent recipients", icon: "bi-clock-history", items: recent },
+          ]);
+        } else {
+          renderEmpty(menu,
+            "No matches in the directory or recent recipients. " +
+            "Press Enter to use the typed address as-is."
+          );
+        }
+      }
+    };
+
+    // Show the dropdown on focus and on every keystroke.
+    inputEl.addEventListener("focus", doSearch);
+    inputEl.addEventListener("input", scheduleSearch);
+    // Hide when the user clicks outside the input + dropdown.
+    document.addEventListener("click", (e) => {
+      if (e.target === inputEl) return;
+      const menu = menuFor(type);
+      if (menu && !menu.contains(e.target)) hide();
+    });
+    // Hide on Escape.
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") hide();
+    });
+  }
+
+  // Insert text into an input that already has a comma-separated
+  // list.  We always REPLACE the partial token after the last
+  // comma/semicolon so the user doesn't end up with
+  // "alice@, bob@example.com" — they get "alice@example.com, bob@example.com".
+  function insertAtCursor(inputEl, addr) {
+    if (!inputEl || !addr) return;
+    const cur = inputEl.value || "";
+    const trimmed = cur.replace(/\s+$/, "");
+    if (!trimmed) {
+      inputEl.value = addr;
+    } else if (/[,;]\s*[^,;]*$/.test(trimmed)) {
+      // There's a partial token after the last comma — replace
+      // it with the new address.
+      inputEl.value = trimmed.replace(/[,;]\s*[^,;]*$/, ", " + addr);
+    } else {
+      inputEl.value = trimmed + ", " + addr;
+    }
+    inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    inputEl.focus();
+  }
+
+  // Attach the typeahead to all three recipient inputs.
+  attachTypeahead(dom.toInput,  "to");
+  attachTypeahead(dom.ccInput,  "cc");
+  attachTypeahead(dom.bccInput, "bcc");
+
+  // ── Public API ────────────────────────────────────────────────────
+  window.EmailManager = {
+    open, close, getState,
+    // Exposed for tests / debugging.
+    _insertAtCursor: insertAtCursor,
+  };
 })();
