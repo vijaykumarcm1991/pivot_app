@@ -658,22 +658,47 @@
     });
   }
 
-  // Insert text into an input that already has a comma-separated
-  // list.  We always REPLACE the partial token after the last
-  // comma/semicolon so the user doesn't end up with
-  // "alice@, bob@example.com" — they get "alice@example.com, bob@example.com".
+  // Insert text into an input.  We support three cases:
+  //
+  //   1. Input is empty                        -> set to addr
+  //   2. Input has a partial token after the last comma/semicolon
+  //      (e.g. "alice, bob")                    -> replace that partial
+  //                                             token with addr so the
+  //                                             result is
+  //                                             "alice, bob@x.com" (no
+  //                                             "bob, bob@x.com" mess)
+  //   3. Input has a single token with no comma
+  //      (e.g. "vijay")                        -> REPLACE the whole
+  //                                             value with addr.  The
+  //                                             user just picked a
+  //                                             suggestion; they
+  //                                             don't want the typed
+  //                                             text AND the new
+  //                                             address concatenated.
+  //                                             Result: "vijay.kumarcm@onmobile.com"
+  //
+  // After insertion we dispatch a fresh `input` event so the
+  // typeahead listener re-runs (it'll see the new value and hide
+  // its dropdown because the new "current token" will be the
+  // address itself, which is in the cache for any later search).
   function insertAtCursor(inputEl, addr) {
     if (!inputEl || !addr) return;
     const cur = inputEl.value || "";
     const trimmed = cur.replace(/\s+$/, "");
     if (!trimmed) {
+      // Case 1: empty input.
       inputEl.value = addr;
     } else if (/[,;]\s*[^,;]*$/.test(trimmed)) {
-      // There's a partial token after the last comma — replace
-      // it with the new address.
+      // Case 2: there's a partial token after the last comma.
+      // Replace that partial token with the new address.
       inputEl.value = trimmed.replace(/[,;]\s*[^,;]*$/, ", " + addr);
     } else {
-      inputEl.value = trimmed + ", " + addr;
+      // Case 3: the input has typed text but no comma.  The user
+      // just clicked a suggestion for that text — REPLACE the
+      // whole value with the email address.  If they want to
+      // add multiple recipients, they can type a comma after
+      // and the typeahead will re-open.
+      inputEl.value = addr;
     }
     inputEl.dispatchEvent(new Event("input", { bubbles: true }));
     inputEl.focus();
