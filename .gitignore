@@ -35,3 +35,4 @@ htmlcov/
 
 # KodeKey internal
 .kkey/
+soft_delete
