@@ -54,6 +54,12 @@ class DeleteRecordsRequest(BaseModel):
     # row fields of the selected rows.
     selections: List[Dict[str, Any]] = Field(default_factory=list)
 
+    # Phase 8 (safety) — if True, the endpoint counts how many source
+    # records would be deleted and returns that count without actually
+    # deleting anything.  The frontend uses this to show the user
+    # "you are about to delete N records" before they confirm.
+    dry_run: bool = Field(default=False, alias="dryRun")
+
 
 class DeleteRecordsResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -116,6 +122,11 @@ def api_pivot_delete_records(
     row). The endpoint returns a small summary so the UI can show
     "X records deleted from Y pivot rows" and trigger an automatic
     pivot refresh.
+
+    If `dryRun: true` is sent, the endpoint counts how many source
+    records would be deleted and returns the count without actually
+    deleting anything.  The frontend uses this to show the user
+    "you are about to delete N records" before they confirm.
     """
     try:
         # Re-hydrate the pivot request into the right shape so the
@@ -126,17 +137,48 @@ def api_pivot_delete_records(
         except Exception:
             pivot_req = payload.pivot_request  # tolerate plain dicts
 
+        ds_id = pivot_req.dataset_id if hasattr(pivot_req, "dataset_id") else payload.pivot_request.get("datasetId")
+        sheet_name = pivot_req.sheet_name if hasattr(pivot_req, "sheet_name") else payload.pivot_request.get("sheetName")
+
+        # Phase 8 (safety) — dry-run: count affected records without
+        # actually deleting anything.  Returns the same shape as a
+        # real delete response but with `deleted: 0`.
+        if payload.dry_run:
+            from app.services.soft_delete_service import SoftDeleteError as _SDE
+            from app.services.soft_delete_service import _pivot_request_to_drilldown_request
+            # Re-use the same single-drilldown helper that soft_delete
+            # uses for each selection, then sum the matched counts.
+            total_matched = 0
+            for sel in payload.selections:
+                try:
+                    req = _pivot_request_to_drilldown_request(
+                        payload.pivot_request if isinstance(payload.pivot_request, dict) else pivot_req,
+                        sel,
+                        limit=5000,
+                    )
+                    result = build_drilldown(db, req)
+                    total_matched += int(result.metadata.get("matched_rows") or 0)
+                except _SDE:
+                    continue
+                except Exception:
+                    continue
+            return DeleteRecordsResponse(
+                auditId=0,
+                matched=total_matched,
+                deleted=0,
+                selections=len(payload.selections),
+            )
+
         result = soft_delete_from_pivot(
             db,
-            dataset_id=pivot_req.dataset_id if hasattr(pivot_req, "dataset_id") else payload.pivot_request.get("datasetId"),
-            sheet_name=pivot_req.sheet_name if hasattr(pivot_req, "sheet_name") else payload.pivot_request.get("sheetName"),
+            dataset_id=ds_id,
+            sheet_name=sheet_name,
             pivot_request=pivot_req,
             selections=payload.selections,
             actor="ui",
         )
         # Invalidate the cache for this dataset — the next pivot
         # call will recompute.
-        ds_id = pivot_req.dataset_id if hasattr(pivot_req, "dataset_id") else payload.pivot_request.get("datasetId")
         if ds_id:
             metadata_cache.invalidate_dataset(int(ds_id))
         log_event(

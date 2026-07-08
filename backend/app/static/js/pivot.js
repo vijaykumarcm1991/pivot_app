@@ -1567,8 +1567,79 @@
       if (window.bootstrap && deleteRecordsModal) {
         const m = bootstrap.Modal.getOrCreateInstance(deleteRecordsModal);
         m.show();
+        // Phase 8 (safety) — run a dry-run preview so the modal can
+        // show the actual source-record count.  This catches the case
+        // where the user thought they were deleting 1 row but actually
+        // had many rows selected.
+        previewDeleteRecordCount(selections);
       }
     });
+  }
+
+  // Phase 8 (safety) — run a dry-run to count how many source records
+  // will be affected.  We POST to /api/pivot/delete-records with
+  // `dryRun: true` so the server returns the count without deleting
+  // anything.  Then the modal shows the count and warns the user if
+  // it's a large delete (>500 records).
+  async function previewDeleteRecordCount(selections) {
+    if (!delResultArea) return;
+    delResultArea.style.display = "";
+    delResultArea.innerHTML = `
+      <div class="text-muted small">
+        <span class="spinner-border spinner-border-sm me-1"></span>
+        Counting affected records…
+      </div>`;
+    try {
+      const res = await fetch("/api/pivot/delete-records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pivotRequest: buildPayload(),
+          selections: selections,
+          dryRun: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Preview failed.");
+      const n = data.matched || 0;
+      const LARGE = 500;
+      const huge  = n > 2000;
+      const tag   = huge
+        ? `<span class="badge bg-danger ms-1">HUGE</span>`
+        : n > LARGE
+        ? `<span class="badge bg-warning text-dark ms-1">LARGE</span>`
+        : "";
+      delResultArea.innerHTML = `
+        <div class="alert alert-info mb-0">
+          <i class="bi bi-info-circle me-1"></i>
+          <strong>${n.toLocaleString()}</strong> source record(s) will be
+          soft-deleted from
+          <strong>${selections.length.toLocaleString()}</strong> pivot
+          row(s). ${tag}
+          ${huge
+            ? `<div class="small text-danger mt-1">
+                <i class="bi bi-exclamation-triangle me-1"></i>
+                This is a very large delete. Please review the selection
+                criteria above carefully before confirming.
+              </div>`
+            : ""}
+        </div>`;
+      // Disable confirm if count is unreasonable
+      if (confirmDeleteBtn) {
+        confirmDeleteBtn.disabled = n <= 0;
+        if (n <= 0) {
+          confirmDeleteBtn.title = "No records would be deleted";
+        } else {
+          confirmDeleteBtn.title = "";
+        }
+      }
+    } catch (err) {
+      delResultArea.innerHTML = `
+        <div class="alert alert-warning mb-0">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Could not count affected records: ${escHtml(err.message)}
+        </div>`;
+    }
   }
 
   if (confirmDeleteBtn) {
