@@ -8,7 +8,7 @@ Phase 8 — Log Viewer routes.
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -28,14 +28,17 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 @router.get("/logs", response_class=HTMLResponse)
-async def logs_page():
+async def logs_page(request: Request):
+    # The Jinja2Templates calls `request.get("extensions", {})` on the
+    # request dict at render time.  Passing `None` here used to make
+    # the Log Viewer return a 500 — the request has to be the real
+    # ASGI scope, not None.
     return templates.TemplateResponse(
         "logs.html",
         {
-            # We don't have a `request` here; the template uses the global nav.
-            "request":  None,
-            "version":  APP_VERSION,
-            "levels":   log_levels(),
+            "request":    request,
+            "version":    APP_VERSION,
+            "levels":     log_levels(),
             "categories": log_categories(),
         },
     )

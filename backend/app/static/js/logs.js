@@ -40,8 +40,9 @@
         const res = await fetch("/api/logs?" + params.toString());
         const data = await res.json();
         if (!res.ok) throw new Error("Failed to load logs.");
-        render(data.rows || []);
-        resultCount.textContent = `${data.count || 0} record(s)`;
+        const rows = data.rows || [];
+        render(rows);
+        resultCount.textContent = `${rows.length} record(s)`;
       } catch (err) {
         rowsEl.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">${escHtml(err.message)}</td></tr>`;
       }

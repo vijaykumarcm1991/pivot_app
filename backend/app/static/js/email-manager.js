@@ -164,49 +164,55 @@
       showAlert("warning", "Click Preview first to build the email.");
       return;
     }
-    setBusy(true, "Sending email…");
-    // Phase 8 — guard against double-send. The Send button is already
-    // disabled via setBusy(), but we also capture the original label
-    // and replace it with a spinner so the user gets immediate visual
-    // feedback that the email is being dispatched.
-    if (dom.sendBtn) {
-      const origHtml = dom.sendBtn.innerHTML;
-      dom.sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending…';
-      try {
-        const payload = buildEmailPayload();
-        const res = await fetch("/api/email/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const contentType = res.headers.get("content-type") || "";
-        let data;
-        if (contentType.includes("application/json")) {
-          data = await res.json();
-        } else {
-          const text = await res.text();
-          const snippet = (text || "").slice(0, 200).replace(/\s+/g, " ").trim();
-          throw new Error(`Server returned ${res.status} (non-JSON): ${snippet || "<empty body>"}`);
-        }
-        if (!res.ok) {
-          throw new Error((data && data.detail) || "Send failed.");
-        }
-        showAlert("success",
-          `Email sent successfully (history #${data.historyId}).`,
-        );
-        // Refresh suggestions so the autocomplete picks up the new
-        // addresses immediately.
-        refreshRecipientSuggestions();
-        // Disable the Send button — the user has to click Preview again
-        // to send another email.
-        dom.sendBtn.disabled = true;
-      } catch (err) {
-        showAlert("danger", "Send failed: " + err.message);
-        dom.sendBtn.innerHTML = origHtml;
-      } finally {
-        setBusy(false);
-      }
+    if (!dom.sendBtn) {
+      showAlert("danger", "Send button not initialised — reload the page and try again.");
       return;
+    }
+    // The original button label (with the bootstrap icon) is captured
+    // BEFORE we replace innerHTML so we can restore it on every exit
+    // path — success, error, and exception. The previous implementation
+    // only restored it on error, so a successful send left the button
+    // stuck on "Sending…" forever (with the spinner spinning).
+    const origHtml = dom.sendBtn.innerHTML;
+    setBusy(true, "Sending email…");
+    dom.sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sending…';
+    try {
+      const payload = buildEmailPayload();
+      const res = await fetch("/api/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const contentType = res.headers.get("content-type") || "";
+      let data;
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        const snippet = (text || "").slice(0, 200).replace(/\s+/g, " ").trim();
+        throw new Error(`Server returned ${res.status} (non-JSON): ${snippet || "<empty body>"}`);
+      }
+      if (!res.ok) {
+        throw new Error((data && data.detail) || "Send failed.");
+      }
+      showAlert("success",
+        `Email sent successfully (history #${data.historyId}).`,
+      );
+      // Refresh suggestions so the autocomplete picks up the new
+      // addresses immediately.
+      refreshRecipientSuggestions();
+      // Invalidate lastPreview so the user must click Preview again
+      // before they can send another email.  This prevents a second
+      // send of the same preview if the user re-clicks Send before
+      // changing anything.
+      lastPreview = null;
+    } catch (err) {
+      showAlert("danger", "Send failed: " + err.message);
+    } finally {
+      // ALWAYS restore the button label so the user is never stuck
+      // on the "Sending…" spinner.
+      dom.sendBtn.innerHTML = origHtml;
+      setBusy(false);
     }
   }
 
