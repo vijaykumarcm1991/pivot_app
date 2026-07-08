@@ -60,6 +60,20 @@ app.include_router(admin_router)
 
 
 # ---------------------------------------------------------------------------
+# Phase 8 — add Cache-Control: no-store to prevent the browser from
+# caching the pivot page (which would cause stale `pivot.js` to load
+# even after we ship a new version).
+@app.middleware("http")
+async def _add_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static/") or request.url.path in (
+        "/", "/pivot", "/manage", "/datasets", "/email/settings", "/email/history",
+        "/admin/cleanup", "/admin/audit", "/diagnostics", "/logs", "/settings",
+    ):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
+
+
 # Custom error handlers — friendly pages, no stack traces.
 # ---------------------------------------------------------------------------
 
