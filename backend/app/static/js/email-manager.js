@@ -433,20 +433,24 @@
   // ── Recipient typeahead (Phase — new) ──────────────────────────────────
   // Real-time suggestions as the user types in To / CC / BCC.
   // The suggestions come from two sources:
-  //   1. /api/users/suggest  — the company directory (users.json)
+  //   1. /api/users/suggest  — the company directory: Users.csv
+  //      (individuals) + DistributionLists.csv (groups).  Each
+  //      result has a `kind` field ("user" or "distribution_list")
+  //      so the dropdown can show a different icon / badge per
+  //      kind.
   //   2. /api/email/recent-recipients  — addresses the user has
   //      actually sent to before
   // We merge them so the most relevant rows are at the top:
-  // directory matches first (richer info: name + department),
+  // directory matches first (richer info: name + kind badge),
   // then recent recipients (so a typed address that's not in
   // the directory still gets a clickable suggestion).
   //
   // The dropdown is shown on the input (not on focus) so the user
   // gets instant feedback as they type.  Each suggestion shows
   // the display name in bold, the email address underneath, and
-  // the department in muted text.  Clicking a suggestion inserts
-  // the email at the cursor position and re-opens the dropdown
-  // for multi-recipient entry.
+  // a small "User" / "Distribution list" badge.  Clicking a
+  // suggestion inserts the email at the cursor position and
+  // re-opens the dropdown for multi-recipient entry.
   const _suggAbort = { to: null, cc: null, bcc: null };
   const _suggCache = new Map();  // key = `${type}:${q}` -> results[]
 
@@ -496,25 +500,45 @@
         renderEmpty(menu, "No matches");
         return;
       }
-      const html = items.slice(0, 8).map(u => `
+      const html = items.slice(0, 8).map(u => renderEntry(u)).join("");
+      showMenu(menu, html);
+    };
+
+    // Render one directory entry (user or distribution list) as a
+    // dropdown item.  Users get a "bi-person" icon + "User" badge;
+    // distribution lists get a "bi-people-fill" icon + "Distribution
+    // list" badge.  The kind comes from the API response (`u.kind`).
+    const renderEntry = (u) => {
+      const isDl = u.kind === "distribution_list";
+      const iconCls    = isDl ? "bi-people-fill" : "bi-person";
+      const iconColour = isDl ? "text-info"      : "text-primary";
+      const badgeText  = isDl ? "Distribution list" : "User";
+      const badgeCls   = isDl
+        ? "bg-info-subtle text-info-emphasis"
+        : "bg-primary-subtle text-primary-emphasis";
+      const subtitle = u.alias && u.alias !== (u.email || "").split("@")[0]
+        ? `<div class="small text-muted">alias: ${escHtml(u.alias)}</div>`
+        : "";
+      return `
         <li>
           <button class="dropdown-item small d-flex align-items-start py-2"
                   type="button"
                   data-fill-address="${escAttr(u.email)}"
                   style="white-space: normal; max-width: 100%;">
-            <i class="bi bi-person me-2 mt-1 text-primary"></i>
+            <i class="bi ${iconCls} me-2 mt-1 ${iconColour}"></i>
             <div class="flex-grow-1">
               <div class="fw-semibold">${escHtml(u.name || u.email)}</div>
               <div class="small text-muted">${escHtml(u.email)}</div>
+              ${subtitle}
               ${u.department || u.jobTitle
                 ? `<div class="small text-muted mt-1">
                      <i class="bi bi-building me-1"></i>${escHtml(u.department || u.jobTitle)}
                    </div>`
                 : ""}
+              <span class="badge ${badgeCls} mt-1">${badgeText}</span>
             </div>
           </button>
-        </li>`).join("");
-      showMenu(menu, html);
+        </li>`;
     };
 
     const renderSectioned = (menu, sections) => {
@@ -533,24 +557,12 @@
           </h6></li>
           <li><hr class="dropdown-divider my-0"></li>`);
         s.items.slice(0, 6).forEach(u => {
-          blocks.push(`
-            <li>
-              <button class="dropdown-item small d-flex align-items-start py-2"
-                      type="button"
-                      data-fill-address="${escAttr(u.email)}"
-                      style="white-space: normal; max-width: 100%;">
-                <i class="bi bi-person me-2 mt-1 text-primary"></i>
-                <div class="flex-grow-1">
-                  <div class="fw-semibold">${escHtml(u.name || u.email)}</div>
-                  <div class="small text-muted">${escHtml(u.email)}</div>
-                  ${u.department || u.jobTitle
-                    ? `<div class="small text-muted mt-1">
-                         <i class="bi bi-building me-1"></i>${escHtml(u.department || u.jobTitle)}
-                       </div>`
-                    : ""}
-                </div>
-              </button>
-            </li>`);
+          // Normalise "recent" items so renderEntry() can style
+          // them like a user.
+          const norm = (u.kind === "distribution_list" || u.kind === "user")
+            ? u
+            : Object.assign({}, u, { kind: "user" });
+          blocks.push(renderEntry(norm));
         });
       }
       if (!hasAny) {

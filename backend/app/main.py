@@ -166,26 +166,32 @@ def on_startup():
         app_settings, app_log, soft_deleted_record, delete_audit, deleted_dataset,
     )
     init_db()
-    # Load the user directory (users.json) into memory so the
-    # email composer's typeahead works on the first request.
-    # The service silently no-ops if the file is missing — the
-    # admin page tells the user how to add it.
+    # Load the user directory (Users.csv + DistributionLists.csv)
+    # into memory so the email composer's typeahead works on the
+    # first request.  The service silently no-ops if the files are
+    # missing — the admin page tells the user how to add them.
     try:
         user_directory.initial_load()
         status = user_directory.status()
-        if status["totalUsers"] > 0:
+        if status["totalUsers"] + status["totalDls"] > 0:
             log_event(
                 "info",
                 "User directory loaded",
                 category="startup",
-                details=f"{status['enabledUsers']}/{status['totalUsers']} enabled users from {status['path']}",
+                details=(
+                    f"{status['totalUsers']} users + {status['totalDls']} distribution lists "
+                    f"(users: {status['usersPath']}, dls: {status['dlsPath']})"
+                ),
             )
         else:
             log_event(
                 "warning",
                 "User directory not loaded",
                 category="startup",
-                details=f"no users at {status['path']} (typeahead will be empty until the file is uploaded)",
+                details=(
+                    f"no data at {status['usersPath']} or {status['dlsPath']} "
+                    "(typeahead will be empty until the CSVs are mounted)"
+                ),
             )
     except Exception as exc:
         log_event(

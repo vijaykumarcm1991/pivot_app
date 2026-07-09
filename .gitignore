@@ -41,8 +41,18 @@ steps
 # Throw-away instruction files in the project root
 /final
 
-# User directory — the user uploads this file to the project
-# root and updates it occasionally.  It's mounted into the
-# container at /app/users.json.  We don't commit the actual file
-# (it changes frequently and contains company directory data)
+# User directory — the user keeps two CSVs in the project root:
+#   Users.csv               — one row per individual user / mailbox
+#   DistributionLists.csv   — one row per group / distribution list
+# Both are mounted into the container at /app/Users.csv and
+# /app/DistributionLists.csv.  We don't commit the actual files
+# (they change frequently and contain company directory data).
+/Users.csv
+/DistributionLists.csv
+
+# Legacy / stray directory exports.  These used to feed the
+# typeahead but have been replaced by Users.csv +
+# DistributionLists.csv above.  Kept out of git so the old
+# payloads (which may contain personal data) never get committed.
 /users.json
+/groups.json

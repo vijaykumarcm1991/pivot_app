@@ -95,10 +95,12 @@
     }
 
     // ── User Directory card ────────────────────────────────────────
-    // Show the live status of the users.json cache + a manual
+    // Show the live status of the directory cache + a manual
     // reload button.  Kept in the same module because the user is
     // most likely to look at the settings page whenever they're
-    // thinking about "who can I email".
+    // thinking about "who can I email".  The directory is backed
+    // by two CSVs (Users.csv + DistributionLists.csv); the card
+    // shows a separate count + size for each.
     const userDirStatusEl  = document.getElementById("userDirStatus");
     const userDirReloadBtn = document.getElementById("userDirReloadBtn");
     if (userDirStatusEl) {
@@ -136,16 +138,26 @@
       }
     }
 
+    function formatBytes(n) {
+      if (!n || n < 1024) return `${n || 0} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
     function renderUserDirectoryStatus(s) {
       if (!userDirStatusEl) return;
-      if (!s || s.totalUsers === 0) {
+      const totalEntries = (s.totalUsers || 0) + (s.totalDls || 0);
+      if (totalEntries === 0) {
         userDirStatusEl.innerHTML = `
           <div class="alert alert-warning small mb-0">
             <i class="bi bi-exclamation-triangle me-1"></i>
-            <strong>No users loaded.</strong>
-            Drop a <code>users.json</code> at
-            <code>${escHtml(s && s.path ? s.path : "/app/users.json")}</code>
-            (or the project root on the host), then click <em>Reload now</em>.
+            <strong>No directory data loaded.</strong>
+            Drop <code>Users.csv</code> and/or <code>DistributionLists.csv</code>
+            at the project root (or
+            <code>${escHtml(s && s.usersPath ? s.usersPath : "/app/Users.csv")}</code>
+            /
+            <code>${escHtml(s && s.dlsPath ? s.dlsPath : "/app/DistributionLists.csv")}</code>
+            in the container), then click <em>Reload now</em>.
           </div>`;
         return;
       }
@@ -154,27 +166,49 @@
         : "—";
       userDirStatusEl.innerHTML = `
         <ul class="list-unstyled small mb-3">
-          <li>
-            <strong>File:</strong>
-            <code title="${escHtml(s.path || "")}">${escHtml(s.path || "—")}</code>
+          <li class="d-flex justify-content-between align-items-center">
+            <span>
+              <i class="bi bi-person me-1 text-primary"></i>
+              <strong>Users</strong>
+              <code class="ms-1" title="${escHtml(s.usersPath || "")}">${escHtml(shortPath(s.usersPath))}</code>
+            </span>
+            <span>
+              <span class="badge bg-primary-subtle text-primary-emphasis">${(s.totalUsers || 0).toLocaleString()}</span>
+              <span class="text-muted ms-1">(${formatBytes(s.usersFileSize)})</span>
+            </span>
           </li>
-          <li>
-            <strong>Total users:</strong> ${s.totalUsers.toLocaleString()}
+          <li class="d-flex justify-content-between align-items-center">
+            <span>
+              <i class="bi bi-people-fill me-1 text-info"></i>
+              <strong>Distribution lists</strong>
+              <code class="ms-1" title="${escHtml(s.dlsPath || "")}">${escHtml(shortPath(s.dlsPath))}</code>
+            </span>
+            <span>
+              <span class="badge bg-info-subtle text-info-emphasis">${(s.totalDls || 0).toLocaleString()}</span>
+              <span class="text-muted ms-1">(${formatBytes(s.dlsFileSize)})</span>
+            </span>
           </li>
-          <li>
-            <strong>Enabled (suggestable):</strong>
-            <span class="badge bg-success-subtle text-success border">${s.enabledUsers.toLocaleString()}</span>
-          </li>
-          <li>
+          <li class="mt-2">
             <strong>Last loaded:</strong> ${escHtml(lastRel)}
           </li>
+          ${s.lastError
+            ? `<li class="mt-1 text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(s.lastError)}</li>`
+            : ""}
         </ul>
         <p class="small text-muted mb-0">
           <i class="bi bi-info-circle me-1"></i>
-          Type any part of a name, email, department or job title into
-          the email composer's To / CC / BCC field and the typeahead
-          will show matching recipients.
+          Type any part of a name, email or alias into the email
+          composer's To / CC / BCC field and the typeahead will show
+          matching individuals and groups.
         </p>`;
+    }
+
+    // Show just the filename when the path is the default container
+    // mount — the long /app/... path is noise on the Settings page.
+    function shortPath(p) {
+      if (!p) return "—";
+      if (p.startsWith("/app/")) return p.slice(5);
+      return p;
     }
 
     function escHtml(s) {
