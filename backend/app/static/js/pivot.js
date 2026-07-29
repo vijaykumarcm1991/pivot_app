@@ -209,6 +209,7 @@
   const filterApplyBtn    = document.getElementById("filterApplyBtn");
   let filterModalField    = null;
   let filterModalSelected = new Set();
+  let filterModalValues   = new Map();
 
   // Wire PivotExport's notifier to our error alert.
   if (window.PivotExport) {
@@ -558,13 +559,25 @@
     openFilterModal(field);
   });
 
+  // A display label alone is not a safe identity: the string "1" and the
+  // number 1, for example, render the same but must stay distinct values.
+  function filterValueKey(value) {
+    return JSON.stringify([value === null ? "null" : typeof value, value]);
+  }
+
+  function filterValueLabel(value) {
+    return value === null || value === "" ? "(blank)" : String(value);
+  }
+
   async function openFilterModal(field) {
     filterModalField    = field;
-    filterModalSelected = new Set();
+    filterModalValues   = new Map();
 
     const existing = appState.filters[field];
-    if (Array.isArray(existing))     existing.forEach(v => filterModalSelected.add(String(v)));
-    else if (existing !== undefined) filterModalSelected.add(String(existing));
+    filterModalSelected = new Set(
+      (Array.isArray(existing) ? existing : existing !== undefined ? [existing] : [])
+        .map(filterValueKey)
+    );
 
     filterValueList.innerHTML = '<div class="text-muted small p-2">Loading values…</div>';
     const m = getFilterModal();
@@ -572,17 +585,12 @@
 
     try {
       const res  = await fetch(
-        `/api/dataset/${appState.datasetId}/sheet/${encodeURIComponent(appState.sheetName)}/preview`
+        `/api/dataset/${appState.datasetId}/sheet/${encodeURIComponent(appState.sheetName)}` +
+        `/field/${encodeURIComponent(field)}/values`
       );
+      if (!res.ok) throw new Error((await res.json()).detail || "Request failed");
       const data = await res.json();
-      const seen = new Set();
-      const distinct = [];
-      (data.rows || []).forEach(row => {
-        const v = row[field];
-        if (v === undefined || v === null || v === "") return;
-        const k = String(v);
-        if (!seen.has(k)) { seen.add(k); distinct.push(v); }
-      });
+      const distinct = data.values || [];
       distinct.sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
       renderFilterValueList(distinct);
     } catch (err) {
@@ -597,13 +605,15 @@
       return;
     }
     values.forEach(v => {
-      const key = String(v);
+      const key = filterValueKey(v);
+      filterModalValues.set(key, v);
       const checked = filterModalSelected.has(key);
+      const label = filterValueLabel(v);
       const item = document.createElement("label");
       item.className = "list-group-item d-flex align-items-center";
       item.innerHTML = `
-        <input class="form-check-input me-2" type="checkbox" value="${escHtml(key)}" ${checked ? "checked" : ""}>
-        <span>${escHtml(key)}</span>
+        <input class="form-check-input me-2" type="checkbox" data-filter-key="${escHtml(key)}" ${checked ? "checked" : ""}>
+        <span>${escHtml(label)}</span>
       `;
       const cb = item.querySelector("input");
       cb.addEventListener("change", () => {
@@ -626,7 +636,7 @@
     filterSelectAll.addEventListener("click", () => {
       filterValueList.querySelectorAll("input[type=checkbox]").forEach(cb => {
         cb.checked = true;
-        filterModalSelected.add(cb.value);
+        filterModalSelected.add(cb.dataset.filterKey);
       });
     });
   }
@@ -634,7 +644,7 @@
     filterSelectNone.addEventListener("click", () => {
       filterValueList.querySelectorAll("input[type=checkbox]").forEach(cb => {
         cb.checked = false;
-        filterModalSelected.delete(cb.value);
+        filterModalSelected.delete(cb.dataset.filterKey);
       });
     });
   }
@@ -644,7 +654,8 @@
       if (filterModalSelected.size === 0) {
         delete appState.filters[filterModalField];
       } else {
-        appState.filters[filterModalField] = Array.from(filterModalSelected);
+        appState.filters[filterModalField] = Array.from(filterModalSelected)
+          .map(key => filterModalValues.get(key));
       }
       updateBadges();
       const m = getFilterModal();
@@ -656,8 +667,8 @@
     filterList.innerHTML = "";
     Object.entries(appState.filters).forEach(([field, val]) => {
       const display = Array.isArray(val)
-        ? (val.length > 3 ? `${val.length} values` : val.join(", "))
-        : (val === null ? "[null]" : String(val));
+        ? (val.length > 3 ? `${val.length} values` : val.map(filterValueLabel).join(", "))
+        : filterValueLabel(val);
       const div = document.createElement("div");
       div.className = "d-flex justify-content-between align-items-center border-bottom py-1";
       div.innerHTML = `

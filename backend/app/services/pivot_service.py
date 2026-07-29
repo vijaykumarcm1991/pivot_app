@@ -446,13 +446,20 @@ def _apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
         if isinstance(expected, dict):
             filtered = _apply_structured_filter(filtered, field, expected)
         elif isinstance(expected, list):
-            filtered = filtered[filtered[field].isin(expected)]
+            filtered = filtered[filtered[field].isin(_coerce_filter_values(filtered[field], expected))]
         elif expected is None:
             filtered = filtered[filtered[field].isna()]
         else:
-            filtered = filtered[filtered[field] == expected]
+            filtered = filtered[filtered[field] == _coerce_filter_values(filtered[field], [expected])[0]]
 
     return filtered
+
+
+def _coerce_filter_values(series: pd.Series, values: List[Any]) -> List[Any]:
+    """Restore JSON date values to timestamps before exact-match filtering."""
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return [pd.to_datetime(value) if value is not None else value for value in values]
+    return values
 
 
 def _apply_structured_filter(

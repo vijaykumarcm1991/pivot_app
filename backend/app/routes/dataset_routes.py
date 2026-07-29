@@ -27,11 +27,14 @@ from app.repositories.dataset_repository import get_all_datasets, get_dataset_by
 from app.repositories.sheet_repository import get_sheet, delete_sheets_by_dataset
 from app.repositories.column_repository import delete_columns_by_dataset
 from app.utils.file_utils import build_upload_path
-from app.schemas.dataset import DatasetOut, DatasetDetail, ColumnInfo, PreviewResponse
+from app.schemas.dataset import (
+    DatasetOut, DatasetDetail, ColumnInfo, PreviewResponse, FilterValuesResponse,
+)
 from app.services.dataset_service import (
     get_dataset_detail,
     get_sheet_columns,
     get_sheet_preview,
+    get_sheet_filter_values,
 )
 from app.services import metadata_cache
 from app.services.app_logging import log_event
@@ -103,6 +106,34 @@ def api_get_preview(dataset_id: int, sheet_name: str, db: Session = Depends(get_
         return get_sheet_preview(db, dataset_id, sheet_name)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Preview failed: {exc}")
+
+
+@router.get(
+    "/api/dataset/{dataset_id}/sheet/{sheet_name}/field/{field}/values",
+    response_model=FilterValuesResponse,
+)
+def api_get_filter_values(
+    dataset_id: int, sheet_name: str, field: str, db: Session = Depends(get_db)
+):
+    """Return the complete distinct-value list used by the Pivot filter UI."""
+    if not get_dataset_by_id(db, dataset_id):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    if not get_sheet(db, dataset_id, sheet_name):
+        raise HTTPException(status_code=404, detail=f"Sheet '{sheet_name}' not found")
+
+    try:
+        values = get_sheet_filter_values(db, dataset_id, sheet_name, field)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not load filter values: {exc}")
+
+    return FilterValuesResponse(
+        dataset_id=dataset_id,
+        sheet_name=sheet_name,
+        field=field,
+        values=values,
+    )
 
 
 @router.delete("/api/dataset/{dataset_id}")

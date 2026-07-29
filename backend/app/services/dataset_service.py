@@ -7,7 +7,10 @@ Called by:
   - dataset_routes : for API responses
 """
 
+from datetime import date, datetime
 from typing import List, Dict, Any
+
+import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.config.settings import UPLOAD_DIR, PREVIEW_ROW_LIMIT
@@ -126,3 +129,33 @@ def get_sheet_preview(
         columns=columns,
         rows=rows,
     )
+
+
+def get_sheet_filter_values(
+    db: Session, dataset_id: int, sheet_name: str, field: str
+) -> List[Any]:
+    """Return every distinct value in a sheet column, in source order.
+
+    The preview endpoint only exposes ``PREVIEW_ROW_LIMIT`` rows, so deriving
+    filter choices from it silently omits values that occur later in a file.
+    Values are made JSON-safe while retaining their native scalar type for the
+    pivot engine (for example, numeric filters remain numeric).
+    """
+    dataset = get_dataset_by_id(db, dataset_id)
+    filepath = build_upload_path(dataset.stored_filename, UPLOAD_DIR)
+    df = load_sheet_df(filepath, sheet_name)
+    if field not in df.columns:
+        raise ValueError(f"Field '{field}' not found in sheet '{sheet_name}'")
+
+    return [_json_safe_filter_value(value) for value in df[field].drop_duplicates().tolist()]
+
+
+def _json_safe_filter_value(value: Any) -> Any:
+    """Convert pandas scalars to JSON values without changing their meaning."""
+    if pd.isna(value):
+        return None
+    if isinstance(value, (pd.Timestamp, datetime, date)):
+        return value.isoformat()
+    if hasattr(value, "item"):
+        return value.item()
+    return value

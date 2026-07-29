@@ -86,3 +86,16 @@ class PreviewResponse(BaseModel):
     sheet_name: str
     columns: List[ColumnInfo]
     rows: List[Dict[str, Any]]
+
+
+class FilterValuesResponse(BaseModel):
+    """All distinct source values for one sheet column.
+
+    This is deliberately separate from ``PreviewResponse``: a preview is
+    capped at a small number of rows, while the Pivot filter picker needs the
+    complete set of values from the sheet.
+    """
+    dataset_id: int
+    sheet_name: str
+    field: str
+    values: List[Any]
