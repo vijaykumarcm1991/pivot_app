@@ -50,7 +50,7 @@ from app.services.email_service import (
 )
 from app.services.attachment_service import attachment_disk_path
 from app.services.smtp_service import SMTPError, is_complete, send_email
-from app.utils.tz import iso_ist
+from app.utils.tz import iso_ist, now_ist
 
 
 router = APIRouter()
@@ -87,6 +87,7 @@ def api_get_smtp_settings(db: Session = Depends(get_db)):
         sender_name=row.sender_name or "",
         sender_email=row.sender_email or "",
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        updated_at_ist=iso_ist(row.updated_at) if row.updated_at else None,
     )
 
 
@@ -113,6 +114,7 @@ def api_post_smtp_settings(payload: SMTPSettingsIn, db: Session = Depends(get_db
         sender_name=row.sender_name or "",
         sender_email=row.sender_email or "",
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        updated_at_ist=iso_ist(row.updated_at) if row.updated_at else None,
     )
 
 
@@ -153,7 +155,7 @@ def api_test_email(
     except SMTPError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    return {"ok": True, "sent_to": recipient, "sent_at": datetime.utcnow().isoformat()}
+    return {"ok": True, "sent_to": recipient, "sent_at": iso_ist(now_ist())}
 
 
 # ── Email preview + send ───────────────────────────────────────────────

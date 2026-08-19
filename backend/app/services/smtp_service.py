@@ -153,4 +153,9 @@ def is_complete(settings: Optional[SMTPSettings]) -> bool:
     # them, but we treat them as required in the form for simplicity.
     if not settings.username:
         return False
+    # The settings form treats both credentials as required, so we
+    # must check the password too — otherwise the app reports SMTP as
+    # "configured" and lets sends proceed only to fail at SMTP login.
+    if not settings.password:
+        return False
     return True

@@ -74,7 +74,8 @@ def api_audit(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
+    rows = list_audit(db, query=q, status=status, dataset_id=dataset_id, limit=limit)
     return {
-        "rows": list_audit(db, query=q, status=status, dataset_id=dataset_id, limit=limit),
-        "count": len(list_audit(db, query=q, status=status, dataset_id=dataset_id, limit=limit)),
+        "rows": rows,
+        "count": len(rows),
     }

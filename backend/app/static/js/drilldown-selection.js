@@ -76,6 +76,17 @@
     // The user-configured row fields.  Anything that's NOT a row
     // field is a value or a marker and must be excluded.
     const rowFields = new Set(meta.rows || []);
+    // Date-grouped row fields appear in the pivot row under their
+    // display name "<Field>_<grouping>" (e.g. "OrderDate_month"),
+    // which is NOT in meta.rows (the original field names). Include
+    // those display names so the selection keeps the field instead of
+    // silently dropping it — which produced wrong drilldown / email /
+    // delete matches, or an empty selection that matched every row.
+    const dateGrouping = meta.date_grouping || {};
+    (meta.rows || []).forEach(f => {
+      const g = dateGrouping && dateGrouping[f];
+      if (g) rowFields.add(`${f}_${g}`);
+    });
 
     const selection = {};
     Object.keys(pivotRow).forEach(key => {

@@ -1852,14 +1852,6 @@
     if (el) el.addEventListener("change", scheduleDraftSave);
   });
   layoutRadios.forEach(r => r.addEventListener("change", scheduleDraftSave));
-  // After the dataset select changes (which loads columns), the user
-  // is going to add fields — we need to save after those too. The
-  // easiest hook is to save at the end of every compute.
-  const _origCompute = computeBtn.onclick;
-  // We re-save on every render so the saved draft always reflects the
-  // last computed state.
-  const _origRender = renderResult;
-
   // After the dataset loads, check for a draft to recover.
   setTimeout(maybeOfferDraftRecovery, 600);
 

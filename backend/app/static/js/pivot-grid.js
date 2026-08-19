@@ -201,12 +201,19 @@
           // Save the user's selection (a list of stable row keys)
           // so we can re-apply it on the new grid.
           const previousSelection = getSelectedRows();
-          const previousSearch = (typeof window.PivotGrid.setSearchTerm === "function")
-            ? null
-            : null;
+          // Preserve the quick-filter search term across the destroy +
+          // recreate so an auto-refresh (e.g. after Delete Records)
+          // doesn't silently drop the user's filter.
+          let previousSearch = "";
+          try {
+            previousSearch = gridApi.getGridOption("quickFilterText") || "";
+          } catch (_) { /* ignore */ }
           try { gridApi.destroy(); } catch (_) { /* ignore */ }
           gridApi = null;
           _createGrid(el, columnDefs, visibleRows, pinnedBottom, context);
+          if (previousSearch) {
+            try { gridApi.setGridOption("quickFilterText", previousSearch); } catch (_) { /* ignore */ }
+          }
           // Re-apply display options AFTER the new grid is in place.
           if (window.PivotDisplay) window.PivotDisplay.applyToGrid(gridApi);
           // Re-apply selection on the new grid by re-selecting rows

@@ -315,9 +315,13 @@ def build_drilldown_multi(
 
 
 def _dedup_key(record: Dict[str, Any]) -> str:
-    """Stable JSON-string dedup key — matches the frontend's
-    `DrilldownSelection.dedupKey()` so both sides agree on what
-    counts as a duplicate."""
+    """Stable JSON-string dedup key for server-side merging.
+
+    Used only by ``build_drilldown_multi`` to collapse identical raw
+    records within a single request. The frontend has its own
+    independent ``DrilldownSelection.dedupKey()`` for the drilldown
+    modal; the two are never compared across the wire, so they need
+    not produce the same string."""
     if not isinstance(record, dict):
         return ""
     return "|".join(
@@ -1011,6 +1015,21 @@ def _compute_totals(
     return {"grand": grand, "row_total_field": "row_total"}
 
 
+def _selection_series(series: pd.Series) -> pd.Series:
+    """Return a string Series suitable for selection matching.
+
+    Datetime cells are formatted as ISO-8601 (e.g. "2026-06-29T00:00:00")
+    to match the ISO strings the pivot layer serialises via
+    ``.isoformat()`` — pandas' own ``.astype(str)`` produces
+    "2026-06-29 00:00:00" (space separator) and the two never matched,
+    so drilldown / soft-delete / email returned zero rows for
+    ungrouped datetime fields.
+    """
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return series.map(lambda v: v.isoformat() if pd.notna(v) else None).astype(str)
+    return series.astype(str)
+
+
 def _apply_selection(
     df: pd.DataFrame, selection: Dict[str, Any], grouped_labels: Dict[str, str]
 ) -> pd.DataFrame:
@@ -1025,7 +1044,7 @@ def _apply_selection(
             # {pivotRow: ..., selection: ...}) instead of a flat
             # {field: value} map.
             continue
-        matched = matched[matched[match_field].astype(str) == str(expected)]
+        matched = matched[_selection_series(matched[match_field]) == str(expected)]
         applied_any = True
     # Safety: if no selection field matched any column, the selection
     # was effectively empty and we must NOT return all rows.  Return

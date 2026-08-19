@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import io
 import os
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -59,12 +60,17 @@ def _safe_filename_component(s: str, fallback: str = "dataset") -> str:
 
 
 def default_filename(dataset_name: str = "", sheet_name: str = "") -> str:
-    """Build a filename like `Pivot_Drilldown_2026-06-30_14-30.xlsx`."""
-    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
-    ds = _safe_filename_component(dataset_name, "dataset")
+    """Build a filename like `Pivot_Drilldown_2026-06-30_14-30-05_a1b2c3.xlsx`.
+
+    The trailing random token keeps two attachments generated in the
+    same second from colliding on disk (the previous minute-precision
+    timestamp let a second email overwrite the first one's file).
+    """
+    stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    token = uuid.uuid4().hex[:6]
     # We intentionally do NOT include the sheet name in the
     # filename — the spec example only has the timestamp.
-    return f"Pivot_Drilldown_{stamp}.xlsx"
+    return f"Pivot_Drilldown_{stamp}_{token}.xlsx"
 
 
 def build_attachment(
