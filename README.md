@@ -4,14 +4,16 @@
 
 An internal operational web app for uploading Excel/CSV datasets, extracting
 reusable metadata, configuring pivots in the browser, and computing pivots on
-the backend. Future phases will add export, scheduled reports and stakeholder
-mailing.
+the backend. Pivot rows can be drilled into, exported to Excel, emailed to
+stakeholders with the underlying records attached, or soft-deleted (with a
+full audit trail).
 
 ## Recent Updates
 
 | Commit    | Description                                                                                       |
 | --------- | ------------------------------------------------------------------------------------------------- |
-| (latest)  | `feat(directory-csv)`: User Directory now backed by two CSVs in the project root (`Users.csv` for individuals, `DistributionLists.csv` for groups) instead of a single `users.json`. Both are mounted read-only into the container; the email composer's typeahead merges both sources and shows a `User` / `Distribution list` badge per result (individuals rank above groups on a tie). New `kind` field on the `/api/users/suggest` response + new `kind` query-param to filter the search to one source. Settings page card now shows a separate count + file path + size for each source, plus a "Last loaded" IST timestamp. `app/services/user_directory.py` rewritten to parse CSV via the stdlib `csv` module, with mtime-based auto-reload per file and per-file `users` / `dls` counts in `status()` and the `reload` response. The two CSVs are gitignored and mounted in `docker-compose.yml`; env vars: `USERS_CSV_PATH`, `DISTRIBUTION_LISTS_CSV_PATH` (defaults: `/app/Users.csv`, `/app/DistributionLists.csv`). |
+| `899e102` | **Bug-fix sweep + UI redesign.** *Safety:* compact-layout rows and empty/unknown selections no longer match the whole dataset; `(blank)` rows and blank filter values now match; Delete Records deletes every matching record (no 5,000 cap), the dry run uses the same matching code and counts overlapping rows once, and drill-down / email / delete act on the configuration of the **rendered** pivot (not the edited form); soft-deleted rows stay deleted on all-numeric sheets (`frame_row_keys`). *Numbers:* subtotals, column totals, row totals and per-column grand totals are aggregated from source records — correct with date grouping, column fields, compact layout and `average`; missing `average/min/max` cells are blank instead of 0. *Backend:* parsed sheets are cached; upload runs in a worker thread with a chunked size check; dataset delete is transactional; IANA timezones work (`tzdata`); SMTP port 465 (implicit SSL); emails never show "None"; attachments include every matching record; user-directory CSVs handle BOMs and don't reload on every keystroke after a bad file. *UI:* new sidebar app shell, light/dark design system, field chips on the Pivot Builder, toasts + confirm dialogs, "Open in Pivot Builder" on the preview page. *Ops:* optional HTTP Basic auth, CORS closed by default, upload ceiling aligned with nginx, compose no longer creates directories for missing CSVs, `pytest` suite in `backend/tests/`. |
+| (prev)    | `feat(directory-csv)`: User Directory now backed by two CSVs in the project root (`Users.csv` for individuals, `DistributionLists.csv` for groups) instead of a single `users.json`. Both are mounted read-only into the container; the email composer's typeahead merges both sources and shows a `User` / `Distribution list` badge per result (individuals rank above groups on a tie). New `kind` field on the `/api/users/suggest` response + new `kind` query-param to filter the search to one source. Settings page card now shows a separate count + file path + size for each source, plus a "Last loaded" IST timestamp. `app/services/user_directory.py` rewritten to parse CSV via the stdlib `csv` module, with mtime-based auto-reload per file and per-file `users` / `dls` counts in `status()` and the `reload` response. The two CSVs are gitignored and mounted in `docker-compose.yml`; env vars: `USERS_CSV_PATH`, `DISTRIBUTION_LISTS_CSV_PATH` (defaults: `/app/Users.csv`, `/app/DistributionLists.csv`). |
 | (prev)    | `feat(email+tz)`: email default template + every timestamp in IST. The user's new default email body is `Hello Team,\n\nWe've been consistently receiving alerts related to the following issue types on a daily basis. Kindly investigate the root cause and take necessary action to resolve them permanently.\n\nRegards,` (no more "drill-down report is attached" footer line). Every visible timestamp in the app — email body, datasets list, preview, audit, log viewer, health endpoint, draft recovery banner, AG Grid export — is now formatted in **IST (Asia/Kolkata, UTC+5:30)**. New `tz.py` helper (`format_ist`, `iso_ist`, `now_ist`) on the backend; new `format.js` (`window.AppFormat.ist`) on the frontend. The default timezone in `app_settings` is now `Asia/Kolkata` (was `UTC`). Every API endpoint that returns a timestamp now also returns an `*_ist` field (ISO-8601 with the +05:30 offset) so the frontend never has to guess. |
 | (prev)    | `fix(admin+email)`: Log Viewer 500 + Send Email stuck on "Sending…". The `/logs` page was passing `request=None` to `templates.TemplateResponse(...)` which threw `AttributeError: 'NoneType' object has no attribute 'get'` at render time — fixed by declaring a proper `Request` parameter on the route handler. The Send Email button was stuck on the "Sending…" spinner because the original label was only restored in the error branch — restructured to always restore the label in the `finally` block. Also hardened `email-manager.js` to handle non-JSON responses gracefully (the "JSON.parse: unexpected character" error). |
 | (prev)    | `fix(email)`: Email Preview "JSON.parse: unexpected character" error. Two related bugs: (1) `main.py` exception handlers always returned the friendly HTML error page, even for `/api/*` requests — fixed to return `JSONResponse` when the path starts with `/api/`. (2) `PivotAppState()` was overwriting `payload.columns` with the full dataset column list — now exposed as a separate `availableColumns` field. |
@@ -268,6 +270,7 @@ pivot-app/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
+│   │   ├── templating.py              ← shared Jinja2Templates + app_name()/app_version globals
 │   │   ├── config/
 │   │   │   ├── database.py
 │   │   │   └── settings.py
@@ -311,6 +314,8 @@ pivot-app/
 │   │   │   ├── css/styles.css            ← Phase 7 — subtotal/column-total/print styles
 │   │   │   └── js/
 │   │   │       ├── theme.js              ← light / dark / system theme switcher
+│   │   │       ├── ui.js                 ← AppUI: toasts, confirm dialog, fetchJSON, sidebar
+│   │   │       ├── dataset-actions.js    ← "Delete dataset" buttons (Datasets + Preview pages)
 │   │   │       ├── upload.js
 │   │   │       ├── manage.js
 │   │   │       ├── pivot.js              ← controller (~1300 lines — Phase 7 wires Display Options, columns/freeze menus, auto-fit/copy/print)
@@ -340,6 +345,7 @@ pivot-app/
 │   ├── generated_reports/
 │   │   ├── email_previews/              ← Phase 6 (one-shot preview attachments)
 │   │   └── email_attachments/           ← Phase 6 (attachments for re-download)
+│   ├── tests/                         ← pytest regression suite (run from backend/)
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── nginx/
@@ -374,6 +380,8 @@ pivot-app/
 | `email-history.js`       | **Phase 6** — Email history page controller. Exposes `/email/history` — list with search + status filter, clickable error messages, re-download buttons. |
 | `manage.js`             | `/manage` page: dataset + sheet selection, column type table, AG Grid preview, delete flow, theme listener. |
 | `upload.js`             | Drag-and-drop + form submit for the upload page. |
+| `ui.js`                 | `window.AppUI` — `toast(msg, {type})`, `confirm({title, body, confirmText, danger})` → Promise, `fetchJSON(url, opts)` (throws `Error(detail)` and copes with non-JSON error pages such as nginx 413s), `escape()`. Also wires the sidebar (mobile drawer + desktop collapse). |
+| `dataset-actions.js`    | Any element with `data-delete-dataset-id` opens a confirm dialog and calls `DELETE /api/dataset/{id}`. |
 | `theme.js`              | `window.ThemeManager` — `setMode / getStoredMode / getCurrentTheme / syncToggleUI / applyTheme`; dispatches `theme:changed` CustomEvent. |
 
 ## Startup
@@ -382,11 +390,25 @@ pivot-app/
 
 ```bash
 ./build_start.sh        # builds + starts in detached mode
-# OR
-docker compose up --build
 ```
 
 The app is served by Nginx at <http://localhost:5000>.
+
+`build_start.sh` creates header-only `Users.csv` / `DistributionLists.csv`
+placeholders when they're missing. If you run `docker compose up --build`
+directly, create those two files first — the bind mounts use
+`create_host_path: false`, so Compose refuses to start rather than creating
+root-owned directories with those names.
+
+Optional settings in `docker-compose.yml` (`backend.environment`):
+
+| Variable | Effect |
+| --- | --- |
+| `APP_AUTH_USERNAME` + `APP_AUTH_PASSWORD` | Require HTTP Basic login for every page and API (except `/health`). Unset = open, as before. |
+| `CORS_ALLOW_ORIGINS` | Comma-separated origins allowed to call the API cross-origin. Unset = same-origin only. |
+
+The maximum upload size (Settings page) is capped at 500 MB to stay below
+nginx's `client_max_body_size 510M`.
 
 ### Local Development
 
@@ -399,6 +421,19 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Local app URL: <http://localhost:8000>
+
+### Tests
+
+```bash
+cd backend
+pip install pytest httpx
+python -m pytest -q
+```
+
+The suite (`backend/tests/`) points every runtime directory and the SQLite
+database at a temp folder, uploads small DataFrames through the real API and
+covers selections, soft delete, subtotals/totals, filters, uploads, dataset
+delete, timezones and the user directory.
 
 ## Pages
 
@@ -951,6 +986,33 @@ the pivot engine (`backend/app/services/pivot_service.py`), or the
 pivot page (`backend/app/static/js/pivot.js` + `pivot.html`), please
 read this section first.
 
+### Selections must identify a pivot row exactly (fixed in `899e102`)
+
+Drill-down, email attachments and Delete Records all turn a pivot row into a
+`{field: value}` selection. Rules the engine now enforces:
+
+- Every pivot row carries `__rowFields` — its exact row-field identity in
+  **both** layouts. Compact rows only have a merged `Rows` label, which used
+  to produce an empty selection that matched the entire dataset. The frontend
+  always uses `__rowFields`.
+- `_apply_selection` matches **nothing** for an empty selection (unless the
+  pivot has no row fields) and **raises** on an unknown field — skipping a
+  criterion silently widens the match.
+- `(blank)` / `null` match empty cells; numbers compare numerically
+  (`2024.0` in a float column matches JSON `2024`).
+- Matching runs on the full frame — no row cap — via `match_selections()`,
+  which loads the sheet once and unions rows by position (no double counts,
+  no collapsing of identical records).
+- The frontend sends the configuration of the **rendered** pivot
+  (`appState.lastPayload`), never the live form.
+
+### Totals are re-aggregated from records, never from leaf cells
+
+Subtotals, column totals, row totals and per-column grand totals all come
+from `_pivot_frame()` over the filtered source rows. Summing or averaging the
+already-aggregated leaf cells gives wrong averages and missed value columns
+named `"<label> | <column value>"`.
+
 ### AG Grid v31.3.2 — "values are showing empty" after a Delete Records refresh
 
 **Symptom**: after clicking **Delete Records** and the auto-refresh
@@ -1171,6 +1233,11 @@ fresh preview.
 **Fix**: use `data.rows.length` instead of `data.count`.
 
 ## How the theme system works
+
+The theme switch is the three-button control at the bottom of the sidebar.
+Colours come from CSS tokens on `:root` / `:root[data-bs-theme="dark"]` in
+`styles.css` (mapped onto Bootstrap's variables and AG Grid's `--ag-*`
+variables), so new pages pick up both themes automatically.
 
 The app supports a three-mode theme:
 
