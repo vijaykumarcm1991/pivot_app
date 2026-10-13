@@ -459,7 +459,7 @@ def _pivot_rows_to_html(
         cells = "".join(
             f'<td style="padding:6px 12px;border:1px solid #ddd;'
             f'font-size:12px;color:#222;{_cell_text_align(c, row.get(c))}">'
-            f'{_html_escape(str(row.get(c, "")))}</td>'
+            f'{_html_escape(_cell_text(row.get(c)))}</td>'
             for c in columns
         )
         body_rows.append(f"<tr>{cells}</tr>")
@@ -477,6 +477,22 @@ def _pivot_rows_to_html(
 
 
 # ── Small HTML helpers ──────────────────────────────────────────────────
+
+def _cell_text(value: Any) -> str:
+    """Text for one pivot cell in the email table: empty for null
+    (never the literal "None"), integers without a trailing ".0"."""
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        if value != value:  # NaN
+            return ""
+        if value.is_integer():
+            return f"{int(value):,}"
+        return f"{value:,.2f}"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"{value:,}"
+    return str(value)
+
 
 def _html_escape(s: str) -> str:
     return (

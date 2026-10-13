@@ -15,7 +15,6 @@ there is one source of truth.
 """
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -26,11 +25,11 @@ from app.services.app_logging import log_event
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+from app.templating import templates
 
 
 @router.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request, db: Session = Depends(get_db)):
+def settings_page(request: Request, db: Session = Depends(get_db)):
     """Render the application settings page."""
     smtp = smtp_settings_repository.get_or_create_settings(db)
     smtp_configured = bool(smtp.password)

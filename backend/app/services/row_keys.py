@@ -48,6 +48,13 @@ def _normalise(v: Any) -> Any:
     """
     if v is None:
         return None
+    # numpy scalars (np.int64, np.float64, np.bool_) → native Python so
+    # that `5` from a pandas frame hashes the same as `5` from JSON.
+    if hasattr(v, "item") and not isinstance(v, (str, bytes)) and v.__class__.__module__ == "numpy":
+        try:
+            v = v.item()
+        except Exception:
+            pass
     # `math.nan` is a `float` and is the canonical "not a number" sentry.
     if isinstance(v, float) and math.isnan(v):
         return None
@@ -90,3 +97,26 @@ def row_source_key(row: Dict[str, Any]) -> str:
         # Last-ditch fallback: stringify the whole row.
         canonical = repr(sorted(((k, str(v)) for k, v in row.items())))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def frame_row_keys(df) -> list:
+    """
+    Return one `row_source_key` per row of a pandas DataFrame, in order.
+
+    Uses ``DataFrame.to_dict("records")`` rather than ``iterrows()``:
+    ``iterrows()`` builds one Series per row and upcasts mixed numeric
+    rows (an ``int`` column next to a ``float`` column comes back as
+    ``5.0``), so the hash of a row read from the file never matched the
+    hash stored at delete time. ``to_dict("records")`` keeps each
+    column's own dtype.
+
+    Columns starting with ``__pivot_`` (date-grouping helpers) are
+    ignored so a key is the same whether or not grouping was applied.
+    """
+    cols = [c for c in df.columns if not str(c).startswith("__pivot_")]
+    if not len(df):
+        return []
+    return [
+        row_source_key({str(k): v for k, v in rec.items()})
+        for rec in df[cols].to_dict(orient="records")
+    ]

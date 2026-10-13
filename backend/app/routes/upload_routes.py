@@ -10,11 +10,9 @@ Routes:
 
 import os
 from pathlib import Path
-import aiofiles
 
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -23,6 +21,9 @@ from app.repositories import app_settings_repository
 from app.schemas.dataset import DatasetCreate, UploadResponse
 from app.services.excel_service import extract_metadata
 from app.services.dataset_service import persist_sheet_metadata
+from app.models.dataset import Dataset
+from app.repositories.column_repository import delete_columns_by_dataset
+from app.repositories.sheet_repository import delete_sheets_by_dataset
 from app.repositories.dataset_repository import (
     create_dataset,
     get_dataset_by_id,
@@ -36,7 +37,7 @@ from app.services.app_logging import log_event
 router = APIRouter()
 
 # Templates are located at backend/app/templates/
-templates = Jinja2Templates(directory="app/templates")
+from app.templating import templates
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +51,7 @@ async def upload_page(request: Request):
 
 
 @router.get("/datasets", response_class=HTMLResponse)
-async def datasets_page(request: Request, db: Session = Depends(get_db)):
+def datasets_page(request: Request, db: Session = Depends(get_db)):
     """Render the list of all uploaded datasets."""
     datasets = get_all_datasets(db)
     # The user asked for every visible timestamp in the app to be
@@ -64,7 +65,7 @@ async def datasets_page(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/preview/{dataset_id}", response_class=HTMLResponse)
-async def preview_page(request: Request, dataset_id: int, db: Session = Depends(get_db)):
+def preview_page(request: Request, dataset_id: int, db: Session = Depends(get_db)):
     """Render the dataset preview page for a given dataset id."""
     dataset = get_dataset_by_id(db, dataset_id)
     if not dataset:
@@ -115,45 +116,72 @@ def _runtime_max_upload_bytes(db: Session) -> int:
     return int(MAX_UPLOAD_BYTES)
 
 
+_UPLOAD_CHUNK = 1024 * 1024
+
+
+def _read_limited(file: UploadFile, max_bytes: int) -> bytes:
+    """Read the upload in chunks and stop as soon as it exceeds the
+    limit, instead of buffering an arbitrarily large body first."""
+    chunks = []
+    total = 0
+    while True:
+        chunk = file.file.read(_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. The maximum allowed size is "
+                       f"{round(max_bytes / (1024 * 1024), 1)} MB.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _remove_quietly(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 @router.post("/api/upload", response_model=UploadResponse)
-async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """
     Accept an .xlsx or .csv file, save it, extract metadata, persist to DB.
     Returns full metadata + preview rows as JSON.
 
     Phase 8 — three layers of validation (extension / MIME / magic bytes)
     + a runtime-configurable max upload size from /api/settings.
+
+    This is a plain (sync) route on purpose: parsing a workbook with
+    pandas is CPU-bound, and FastAPI runs sync routes in a worker thread
+    so a large upload no longer freezes every other request.
     """
     # --- Validate extension (cheap, first layer) ---
-    try:
-        ext = Path(file.filename or "").suffix.lower()
-        if ext not in {".xlsx", ".csv"}:
-            raise FileValidationError(
-                f"Unsupported file extension '{ext or '(none)'}'. "
-                "Allowed: .xlsx, .csv."
-            )
-    except FileValidationError as exc:
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in {".xlsx", ".csv"}:
+        msg = (f"Unsupported file extension '{ext or '(none)'}'. "
+               "Allowed: .xlsx, .csv.")
         log_event("warning", "Upload rejected (extension)", category="upload",
-                  details=f"{file.filename}: {exc}")
-        raise HTTPException(status_code=400, detail=str(exc))
+                  details=f"{file.filename}: {msg}")
+        raise HTTPException(status_code=400, detail=msg)
 
     # --- Read file content (enforce runtime-configured size limit) ---
-    content = await file.read()
     max_bytes = _runtime_max_upload_bytes(db)
-    if len(content) > max_bytes:
-        size_mb = round(max_bytes / (1024 * 1024), 1)
+    try:
+        content = _read_limited(file, max_bytes)
+    except HTTPException:
         log_event("warning", "Upload rejected (size)", category="upload",
-                  details=f"{file.filename}: {len(content)} bytes (limit {max_bytes})")
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large. The maximum allowed size is {size_mb} MB.",
-        )
+                  details=f"{file.filename}: over limit {max_bytes} bytes")
+        raise
 
     # --- Save to disk with unique name ---
     stored_filename = generate_stored_filename(file.filename)
     save_path = build_upload_path(stored_filename, UPLOAD_DIR)
-    async with aiofiles.open(save_path, "wb") as f:
-        await f.write(content)
+    with open(save_path, "wb") as f:
+        f.write(content)
 
     # --- Validate MIME + magic bytes + full file integrity ---
     try:
@@ -164,43 +192,59 @@ async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db
             full_path=save_path,
         )
     except FileValidationError as exc:
-        # Remove the file from disk — never keep a half-uploaded file.
-        try:
-            os.remove(save_path)
-        except OSError:
-            pass
+        _remove_quietly(save_path)
         log_event("warning", "Upload rejected (validation)", category="upload",
                   details=f"{file.filename}: {exc}")
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        _remove_quietly(save_path)
+        raise
 
     # --- Parse metadata ---
     try:
         meta = extract_metadata(save_path)
     except Exception as exc:
-        os.remove(save_path)  # clean up on failure
+        _remove_quietly(save_path)
         log_event("error", "Upload failed (parse)", category="upload",
                   details=f"{file.filename}: {exc}")
         raise HTTPException(status_code=422, detail=f"Failed to parse file: {exc}")
 
-    # --- Persist dataset record ---
-    dataset_record = create_dataset(
-        db,
-        DatasetCreate(
-            filename=file.filename,
-            stored_filename=stored_filename,
-            total_rows=meta["total_rows"],
-            total_columns=meta["total_cols"],
-        ),
-    )
-
-    # --- Persist sheet + column metadata (Phase 2) ---
-    sheet_row_counts = {s.sheet_name: s.row_count for s in meta["sheets"]}
-    persist_sheet_metadata(
-        db,
-        dataset_id=dataset_record.id,
-        sheet_columns=meta["sheet_columns"],
-        sheet_row_counts=sheet_row_counts,
-    )
+    # --- Persist dataset + sheet + column metadata ---
+    # If anything fails after the dataset row exists, remove the row and
+    # the file so we never leave a dataset without metadata (or a file
+    # without a dataset).
+    dataset_record = None
+    try:
+        dataset_record = create_dataset(
+            db,
+            DatasetCreate(
+                filename=file.filename,
+                stored_filename=stored_filename,
+                total_rows=meta["total_rows"],
+                total_columns=meta["total_cols"],
+            ),
+        )
+        sheet_row_counts = {s.sheet_name: s.row_count for s in meta["sheets"]}
+        persist_sheet_metadata(
+            db,
+            dataset_id=dataset_record.id,
+            sheet_columns=meta["sheet_columns"],
+            sheet_row_counts=sheet_row_counts,
+        )
+    except Exception as exc:
+        db.rollback()
+        if dataset_record is not None:
+            try:
+                delete_columns_by_dataset(db, dataset_record.id)
+                delete_sheets_by_dataset(db, dataset_record.id)
+                db.query(Dataset).filter(Dataset.id == dataset_record.id).delete()
+                db.commit()
+            except Exception:
+                db.rollback()
+        _remove_quietly(save_path)
+        log_event("error", "Upload failed (persist)", category="upload",
+                  details=f"{file.filename}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Could not save dataset: {exc}")
 
     log_event(
         "info",

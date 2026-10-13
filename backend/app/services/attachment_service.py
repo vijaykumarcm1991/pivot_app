@@ -31,13 +31,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
-from app.config.settings import REPORTS_DIR
+from app.config.settings import MAX_ROWS_ALLOWED, REPORTS_DIR
 from app.services.pivot_service import build_drilldown_multi
 
 
-# Hard cap for the attachment. The same cap as the drilldown API
-# (5 000) — keeps the file under ~1 MB even for wide sheets.
-ATTACHMENT_LIMIT = 5000
+# Cap for the attachment. Uploads are limited to MAX_ROWS_ALLOWED rows,
+# so this attaches every matching record (the old 5 000 cap silently
+# dropped records from large selections).
+ATTACHMENT_LIMIT = MAX_ROWS_ALLOWED
 
 
 class AttachmentError(ValueError):

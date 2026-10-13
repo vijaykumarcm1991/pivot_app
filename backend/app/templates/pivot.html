@@ -1,319 +1,222 @@
 {% extends "base.html" %}
-{% block title %}Pivot Builder — Pivot App{% endblock %}
+{% block title %}Pivot Builder — {{ app_name() }}{% endblock %}
+{% block content_class %}app-content-wide{% endblock %}
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h2 class="fw-bold mb-0"><i class="bi bi-table me-2 text-success"></i>Pivot Builder</h2>
-
-  {# ── Reserved action buttons for Phases 5+ (Save / Load / Email) ─────
-     The spec for Phase 4 wants the layout to already feel "complete" so
-     these slots are visible from day one, just disabled with a "soon"
-     label so it's obvious they aren't forgotten.                      #}
-  <div class="btn-group btn-group-sm" role="group" aria-label="Reserved future actions">
-    <button type="button" class="btn btn-outline-secondary btn-reserved" disabled
-            title="Save current pivot configuration (planned for Phase 5)">
-      <i class="bi bi-save me-1"></i>Save
-    </button>
-    <button type="button" class="btn btn-outline-secondary btn-reserved" disabled
-            title="Load a saved pivot configuration (planned for Phase 5)">
-      <i class="bi bi-folder2-open me-1"></i>Load
-    </button>
-    <a href="/email/settings" class="btn btn-outline-secondary"
-       title="Configure the SMTP server used to send emails">
-      <i class="bi bi-envelope-gear me-1"></i>Email Settings
+<header class="page-header mb-3">
+  <div>
+    <div class="page-eyebrow">Workspace</div>
+    <h1 class="page-title">Pivot Builder</h1>
+    <p class="page-subtitle">Group, aggregate and filter a dataset, then drill into records, export, or email the result.</p>
+  </div>
+  <div class="page-actions">
+    <a href="/email/settings" class="btn btn-outline-secondary btn-sm" title="Configure the SMTP server used to send emails">
+      <i class="bi bi-envelope-at me-1"></i>SMTP settings
     </a>
+  </div>
+</header>
+
+{# Draft recovery banner — shown when a saved configuration is found. #}
+<div id="draftRecoveryBanner" class="alert alert-info d-none mb-3" role="status">
+  <div class="d-flex flex-wrap align-items-center gap-2">
+    <i class="bi bi-clock-history"></i>
+    <div>
+      <strong>Pick up where you left off?</strong>
+      <span class="small text-muted ms-1" id="draftRecoveryMeta"></span>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+      <button type="button" class="btn btn-sm btn-primary" id="restoreDraftBtn"><i class="bi bi-arrow-counterclockwise me-1"></i>Restore</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="discardDraftBtn">Discard</button>
+    </div>
   </div>
 </div>
 
-<div class="row g-4">
+<div class="row g-4 pivot-layout">
 
-  {# ────────────────────────────────────────────────────────────────────────
-     LEFT PANEL — Pivot Configuration (Phase 3 — unchanged)
-     ──────────────────────────────────────────────────────────────────────── #}
-  <div class="col-lg-4 pivot-config-col" id="configPanel">
+  {# ─────────────────────────── LEFT: configuration ─────────────────────────── #}
+  <div class="col-lg-4 col-xxl-3 pivot-config-col" id="configPanel">
 
-    {# Dataset & sheet selection #}
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-file-earmark-spreadsheet me-2 text-success"></i>Source Data
-      </div>
+    <div class="card config-card">
+      <div class="card-header"><i class="bi bi-database me-2"></i>Source</div>
       <div class="card-body">
-        <div class="row g-2 mb-2">
-          <div class="col-7">
-            <label class="form-label small fw-bold">Dataset</label>
-            <select id="datasetSelect" class="form-select">
-              <option value="">— select a dataset —</option>
-            </select>
-          </div>
-          <div class="col-5">
-            <label class="form-label small fw-bold">Sheet</label>
-            <select id="sheetSelect" class="form-select" disabled>
-              <option value="">— select —</option>
-            </select>
-          </div>
-        </div>
-        <div class="alert alert-info small py-2 mb-0 mt-2" id="sourceInfo" style="display:none">
-          <i class="bi bi-info-circle me-1"></i>
-          <span id="sourceMeta">—</span>
+        <label class="form-label" for="datasetSelect">Dataset</label>
+        <select id="datasetSelect" class="form-select mb-2">
+          <option value="">— select a dataset —</option>
+        </select>
+        <label class="form-label" for="sheetSelect">Sheet</label>
+        <select id="sheetSelect" class="form-select" disabled>
+          <option value="">— select —</option>
+        </select>
+        <div class="small text-muted mt-2" id="sourceInfo" style="display:none">
+          <i class="bi bi-info-circle me-1"></i><span id="sourceMeta">—</span>
         </div>
       </div>
     </div>
 
-    {# Rows (Row grouping) #}
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header fw-semibold d-flex justify-content-between">
-        <span><i class="bi bi-list-nested me-2 text-primary"></i>Rows</span>
-        <span class="badge bg-body-tertiary text-body" id="rowsBadge">0</span>
+    <div class="card config-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-nested me-2"></i>Rows</span>
+        <span class="badge bg-secondary" id="rowsBadge">0</span>
       </div>
       <div class="card-body">
-        <select id="rowsSelect" class="form-select" multiple size="6" style="min-height: 120px" disabled></select>
-        <button id="addRowBtn" class="btn btn-outline-primary btn-sm w-100 mt-2">
-          <i class="bi bi-plus-lg me-1"></i>Add to Rows
-        </button>
-        <button id="removeRowBtn" class="btn btn-outline-secondary btn-sm w-100 mt-1" disabled>
-          <i class="bi bi-dash-lg me-1"></i>Remove Selected
-        </button>
-      </div>
-    </div>
-
-    {# Columns (Column grouping) #}
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header fw-semibold d-flex justify-content-between">
-        <span><i class="bi bi-layout-three-columns me-2 text-info"></i>Columns</span>
-        <span class="badge bg-body-tertiary text-body" id="colsBadge">0</span>
-      </div>
-      <div class="card-body">
-        <select id="colsSelect" class="form-select" multiple size="6" style="min-height: 120px" disabled></select>
-        <button id="addColBtn" class="btn btn-outline-info btn-sm w-100 mt-2">
-          <i class="bi bi-plus-lg me-1"></i>Add to Columns
-        </button>
-        <button id="removeColBtn" class="btn btn-outline-secondary btn-sm w-100 mt-1" disabled>
-          <i class="bi bi-dash-lg me-1"></i>Remove Selected
-        </button>
-      </div>
-    </div>
-
-    {# Date Grouping #}
-    <div class="card border-0 shadow-sm mb-3" id="dateGroupingCard" style="display:none">
-      <div class="card-header fw-semibold d-flex justify-content-between">
-        <span><i class="bi bi-calendar3 me-2 text-warning"></i>Date Grouping</span>
-        <span class="badge bg-body-tertiary text-body" id="dateGroupingBadge">0</span>
-      </div>
-      <div class="card-body">
-        <div id="dateGroupingList" class="mb-3"></div>
+        <div id="rowsChips" class="chip-list mb-2"></div>
         <div class="input-group input-group-sm">
-          <select id="dateFieldSelect" class="form-select" disabled>
-            <option value="">— date field —</option>
-          </select>
-          <select id="dateGroupSelect" class="form-select" style="max-width: 120px">
-            <option value="day">Day</option>
-            <option value="week">Week</option>
-            <option value="month">Month</option>
-            <option value="quarter">Quarter</option>
-            <option value="year">Year</option>
-          </select>
-          <button id="addDateGroupBtn" class="btn btn-outline-warning" disabled>
-            <i class="bi bi-plus"></i>Add Grouping
-          </button>
+          <select id="rowsSelect" class="form-select" disabled aria-label="Field to add to rows"></select>
+          <button id="addRowBtn" class="btn btn-outline-primary" disabled title="Add to rows"><i class="bi bi-plus-lg"></i></button>
         </div>
-        <p class="small text-muted mt-2 mb-0">
-          <i class="bi bi-info-circle me-1"></i>Datetime fields in Rows/Columns will automatically be grouped.
-        </p>
       </div>
     </div>
 
-    {# Values (Aggregations) #}
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header fw-semibold d-flex justify-content-between">
-        <span><i class="bi bi-calculator me-2 text-success"></i>Values</span>
-        <span class="badge bg-body-tertiary text-body" id="valuesBadge">0</span>
+    <div class="card config-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-layout-three-columns me-2"></i>Columns</span>
+        <span class="badge bg-secondary" id="colsBadge">0</span>
       </div>
       <div class="card-body">
-        <div id="valueList" class="mb-3"></div>
+        <div id="colsChips" class="chip-list mb-2"></div>
         <div class="input-group input-group-sm">
-          <select id="valueFieldSelect" class="form-select" disabled>
+          <select id="colsSelect" class="form-select" disabled aria-label="Field to add to columns"></select>
+          <button id="addColBtn" class="btn btn-outline-primary" disabled title="Add to columns"><i class="bi bi-plus-lg"></i></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card config-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-calculator me-2"></i>Values</span>
+        <span class="badge bg-secondary" id="valuesBadge">0</span>
+      </div>
+      <div class="card-body">
+        <div id="valueList" class="mb-2"></div>
+        <div class="input-group input-group-sm">
+          <select id="valueFieldSelect" class="form-select" disabled aria-label="Value field">
             <option value="">— field —</option>
           </select>
-          <select id="valueAggSelect" class="form-select" style="max-width: 120px">
+          <select id="valueAggSelect" class="form-select" style="max-width: 112px" aria-label="Aggregation">
             <option value="sum">Sum</option>
             <option value="average">Average</option>
             <option value="count">Count</option>
             <option value="min">Min</option>
             <option value="max">Max</option>
           </select>
-          <button id="addValueBtn" class="btn btn-outline-success" disabled>
-            <i class="bi bi-plus"></i>
-          </button>
+          <button id="addValueBtn" class="btn btn-outline-primary" disabled title="Add value"><i class="bi bi-plus-lg"></i></button>
         </div>
+        <div class="form-text">No values? The pivot counts records.</div>
       </div>
     </div>
 
-    {# Filters #}
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-funnel me-2 text-warning"></i>Filters
-      </div>
+    <div class="card config-card">
+      <div class="card-header"><i class="bi bi-funnel me-2"></i>Filters</div>
       <div class="card-body">
-        <div id="filterList"></div>
+        <div id="filterList" class="mb-2"></div>
         <div class="input-group input-group-sm">
-          <select id="filterFieldSelect" class="form-select" disabled>
+          <select id="filterFieldSelect" class="form-select" disabled aria-label="Filter field">
             <option value="">— field —</option>
           </select>
-          <button id="addFilterBtn" class="btn btn-outline-warning" disabled>
-            <i class="bi bi-plus"></i>Add Filter
-          </button>
+          <button id="addFilterBtn" class="btn btn-outline-primary" disabled><i class="bi bi-plus-lg me-1"></i>Filter</button>
         </div>
       </div>
     </div>
 
-    {# Filter values modal (multi-select) — Phase 3 #}
-    <div class="modal fade" id="filterModal" tabindex="-1" aria-labelledby="filterModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-scrollable">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title" id="filterModalLabel">Select filter values</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <div class="input-group input-group-sm mb-2">
-              <span class="input-group-text"><i class="bi bi-search"></i></span>
-              <input id="filterSearch" type="text" class="form-control" placeholder="Search values…">
-            </div>
-            <div class="d-flex justify-content-between mb-2">
-              <button id="filterSelectAll" type="button" class="btn btn-sm btn-link p-0">Select all</button>
-              <button id="filterSelectNone" type="button" class="btn btn-sm btn-link p-0">Clear</button>
-            </div>
-            <div id="filterValueList" class="list-group" style="max-height: 360px; overflow-y: auto;"></div>
-            <p class="small text-muted mt-2 mb-0">
-              <i class="bi bi-info-circle me-1"></i>Empty selection = no filter on this field.
-            </p>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-            <button type="button" class="btn btn-warning" id="filterApplyBtn">
-              <i class="bi bi-check2 me-1"></i>Apply
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {# Layout & Totals #}
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-layout-split me-2 text-secondary"></i>Layout &amp; Totals
+    <div class="card config-card" id="dateGroupingCard" style="display:none">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-calendar3 me-2"></i>Date grouping</span>
+        <span class="badge bg-secondary" id="dateGroupingBadge">0</span>
       </div>
       <div class="card-body">
-        <label class="form-label small fw-bold">Layout</label>
-        <div class="form-check">
-          <input class="form-check-input" type="radio" name="layout" id="layoutTabular" value="tabular" checked>
-          <label class="form-check-label" for="layoutTabular">
-            <strong>Tabular</strong> — each row field in its own column
-          </label>
+        <div id="dateGroupingList" class="mb-2"></div>
+        <div class="input-group input-group-sm">
+          <select id="dateFieldSelect" class="form-select" disabled aria-label="Date field">
+            <option value="">— date field —</option>
+          </select>
+          <select id="dateGroupSelect" class="form-select" style="max-width: 108px" aria-label="Grouping">
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+            <option value="quarter">Quarter</option>
+            <option value="year">Year</option>
+          </select>
+          <button id="addDateGroupBtn" class="btn btn-outline-primary" disabled title="Add grouping"><i class="bi bi-plus-lg"></i></button>
         </div>
-        <div class="form-check mb-3">
-          <input class="form-check-input" type="radio" name="layout" id="layoutCompact" value="compact">
-          <label class="form-check-label" for="layoutCompact">
-            <strong>Compact</strong> — multiple row fields combined into one column
-          </label>
-        </div>
-
-        <hr class="my-2">
-
-        <label class="form-label small fw-bold">Totals</label>
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" id="optGrandTotals" checked>
-          <label class="form-check-label" for="optGrandTotals">Show Grand Totals</label>
-        </div>
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" id="optRowTotals" checked>
-          <label class="form-check-label" for="optRowTotals">Show Row Totals</label>
-        </div>
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" id="optColumnTotals">
-          <label class="form-check-label" for="optColumnTotals">Show Column Totals</label>
-        </div>
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" id="optSubtotals">
-          <label class="form-check-label" for="optSubtotals">Show Subtotals</label>
-        </div>
+        <div class="form-text">The field is added to Rows if it isn't already used.</div>
       </div>
     </div>
 
-    {# Row Field Sorting #}
-    <div class="card border-0 shadow-sm mb-3" id="sortingCard" style="display:none">
-      <div class="card-header fw-semibold d-flex justify-content-between">
-        <span><i class="bi bi-sort-down me-2 text-info"></i>Row Sorting</span>
-        <span class="badge bg-body-tertiary text-body" id="sortBadge">0</span>
+    <div class="card config-card" id="sortingCard" style="display:none">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-sort-down me-2"></i>Row sorting</span>
+        <span class="badge bg-secondary" id="sortBadge">0</span>
       </div>
       <div class="card-body">
-        <div id="sortList" class="mb-2"></div>
-        <p class="small text-muted mb-0">
-          <i class="bi bi-info-circle me-1"></i>Add fields to <strong>Rows</strong> first, then set a sort direction here.
-        </p>
+        <div id="sortList"></div>
       </div>
     </div>
 
-    {# ─────────────────────────────────────────────────────────────────────
-       PHASE 7 — Display Options card
-       Mirrors the Excel "Design" tab: Repeat Item Labels, number / date
-       formatting, conditional formatting, freeze / hide columns.
-       The actual grid behaviour is driven by pivot-display.js.
-       ──────────────────────────────────────────────────────────────────── #}
-    <div class="card border-0 shadow-sm mb-3" id="displayOptionsCard">
-      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-palette me-2 text-primary"></i>Display Options</span>
-        <button id="resetDisplayOptionsBtn" class="btn btn-sm btn-link p-0" type="button"
-                title="Reset every display option to default">
-          <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+    <div class="card config-card">
+      <div class="card-header"><i class="bi bi-layout-split me-2"></i>Layout &amp; totals</div>
+      <div class="card-body">
+        <div class="btn-group w-100 mb-3" role="group" aria-label="Layout">
+          <input class="btn-check" type="radio" name="layout" id="layoutTabular" value="tabular" checked>
+          <label class="btn btn-outline-secondary btn-sm" for="layoutTabular" title="Each row field in its own column">Tabular</label>
+          <input class="btn-check" type="radio" name="layout" id="layoutCompact" value="compact">
+          <label class="btn btn-outline-secondary btn-sm" for="layoutCompact" title="Row fields combined into one column">Compact</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="optGrandTotals" checked>
+          <label class="form-check-label" for="optGrandTotals">Grand totals</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="optRowTotals" checked>
+          <label class="form-check-label" for="optRowTotals">Row totals</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="optColumnTotals">
+          <label class="form-check-label" for="optColumnTotals">Column totals</label>
+        </div>
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" role="switch" id="optSubtotals">
+          <label class="form-check-label" for="optSubtotals">Subtotals</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card config-card" id="displayOptionsCard">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-palette me-2"></i>Display</span>
+        <button id="resetDisplayOptionsBtn" class="btn btn-sm btn-link p-0" type="button" title="Reset every display option">
+          Reset
         </button>
       </div>
       <div class="card-body">
-
-        {# Repeat Item Labels (Tabular Form) #}
         <div class="form-check form-switch mb-3">
-          <input class="form-check-input" type="checkbox" id="optRepeatItemLabels">
-          <label class="form-label small fw-bold" for="optRepeatItemLabels">
-            <i class="bi bi-list-ol me-1 text-primary"></i>Repeat Item Labels
-          </label>
-          <div class="small text-muted ms-4 ps-1">
-            Repeat grouped values on every row (Excel Tabular Form).
-          </div>
+          <input class="form-check-input" type="checkbox" role="switch" id="optRepeatItemLabels">
+          <label class="form-check-label" for="optRepeatItemLabels">Repeat item labels</label>
+          <div class="form-text mt-0">Repeat grouped values on every row (tabular form).</div>
         </div>
 
-        <hr class="my-2">
-
-        {# Number Format #}
-        <label class="form-label small fw-bold mb-1">
-          <i class="bi bi-123 me-1 text-primary"></i>Number Format
-        </label>
+        <label class="form-label" for="numberFormatField">Number format</label>
         <div class="input-group input-group-sm mb-2">
           <select id="numberFormatField" class="form-select" disabled>
             <option value="">— field —</option>
           </select>
-          <select id="numberFormatType" class="form-select" style="max-width: 130px">
+          <select id="numberFormatType" class="form-select" style="max-width: 124px" aria-label="Number format">
             <option value="integer">Integer</option>
             <option value="decimal">Decimal</option>
             <option value="currency">Currency</option>
             <option value="percentage">Percentage</option>
             <option value="thousands">Thousands</option>
           </select>
-          <button id="addNumberFormatBtn" class="btn btn-outline-primary" type="button">
-            <i class="bi bi-plus"></i>
-          </button>
+          <button id="addNumberFormatBtn" class="btn btn-outline-primary" type="button" title="Add number format"><i class="bi bi-plus-lg"></i></button>
         </div>
         <div id="numberFormatList" class="mb-3"></div>
 
-        {# Date Format #}
-        <label class="form-label small fw-bold mb-1">
-          <i class="bi bi-calendar3 me-1 text-warning"></i>Date Format
-        </label>
+        <label class="form-label" for="dateFormatField">Date format</label>
         <div class="input-group input-group-sm mb-2">
           <select id="dateFormatField" class="form-select" disabled>
             <option value="">— field —</option>
           </select>
-          <select id="dateFormatType" class="form-select" style="max-width: 130px">
+          <select id="dateFormatType" class="form-select" style="max-width: 136px" aria-label="Date format">
             <option value="yyyy-mm-dd">yyyy-mm-dd</option>
             <option value="dd-mm-yyyy">dd-mm-yyyy</option>
             <option value="MMM yyyy">MMM yyyy</option>
@@ -321,308 +224,197 @@
             <option value="quarter">Quarter</option>
             <option value="year">Year</option>
           </select>
-          <button id="addDateFormatBtn" class="btn btn-outline-warning" type="button">
-            <i class="bi bi-plus"></i>
-          </button>
+          <button id="addDateFormatBtn" class="btn btn-outline-primary" type="button" title="Add date format"><i class="bi bi-plus-lg"></i></button>
         </div>
         <div id="dateFormatList" class="mb-3"></div>
 
-        {# Conditional Formatting #}
-        <label class="form-label small fw-bold mb-1">
-          <i class="bi bi-lightning-charge-fill me-1 text-danger"></i>Conditional Formatting
-          <span class="badge bg-danger ms-1" id="conditionalFormatCount">0</span>
-        </label>
-        <button id="openConditionalFormatBtn" class="btn btn-outline-danger btn-sm w-100 mb-1" type="button"
-                title="Add / remove conditional formatting rules">
-          <i class="bi bi-brush me-1"></i>Manage Rules
-        </button>
-        <p class="small text-muted mb-0">
-          Highlight cells by value (Greater / Less / Equal / Top 10 / Bottom 10 / Duplicates).
-        </p>
+        <div class="d-flex align-items-center justify-content-between">
+          <span class="form-label mb-0">Conditional formatting <span class="badge bg-secondary ms-1" id="conditionalFormatCount">0</span></span>
+          <button id="openConditionalFormatBtn" class="btn btn-outline-secondary btn-sm" type="button" title="Add / remove conditional formatting rules">
+            <i class="bi bi-brush me-1"></i>Rules
+          </button>
+        </div>
       </div>
     </div>
 
   </div>
 
-  {# ────────────────────────────────────────────────────────────────────────
-     RIGHT PANEL — Pivot Result (Phase 4)
-     ──────────────────────────────────────────────────────────────────────── #}
-  <div class="col-lg-8 pivot-result-col" id="resultPanel">
+  {# ─────────────────────────── RIGHT: result ─────────────────────────── #}
+  <div class="col-lg-8 col-xxl-9 pivot-result-col" id="resultPanel">
 
-    {# Sticky action toolbar — Generate / Validate / Export + view toggles #}
-    <div class="card border-0 shadow-sm mb-3 sticky-top" id="actionsCard">
+    <div class="card mb-3 sticky-top" id="actionsCard">
       <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
-        {# View controls — hide config / fullscreen result #}
-        <div class="btn-group btn-group-sm me-2" role="group" aria-label="View controls">
-          <button id="toggleConfigBtn"
-                  type="button"
-                  class="btn btn-outline-secondary"
-                  title="Hide pivot configuration panel"
-                  aria-label="Toggle configuration panel"
-                  aria-expanded="true">
-            <i class="bi bi-chevron-double-left"></i>
-            <span class="d-none d-lg-inline ms-1">Config</span>
+        <div class="btn-group btn-group-sm" role="group" aria-label="View controls">
+          <button id="toggleConfigBtn" type="button" class="btn btn-outline-secondary"
+                  title="Hide pivot configuration panel" aria-label="Toggle configuration panel" aria-expanded="true">
+            <i class="bi bi-chevron-double-left"></i><span class="d-none d-xl-inline ms-1">Config</span>
           </button>
-          <button id="fullscreenBtn"
-                  type="button"
-                  class="btn btn-outline-secondary"
-                  title="Expand pivot result to full screen (Esc to exit)"
-                  aria-label="Toggle fullscreen"
-                  aria-pressed="false">
-            <i class="bi bi-arrows-fullscreen"></i>
-            <span class="d-none d-lg-inline ms-1">Fullscreen</span>
+          <button id="fullscreenBtn" type="button" class="btn btn-outline-secondary"
+                  title="Expand the result to full screen (Esc to exit)" aria-label="Toggle fullscreen" aria-pressed="false">
+            <i class="bi bi-arrows-fullscreen"></i><span class="d-none d-xl-inline ms-1">Fullscreen</span>
           </button>
         </div>
 
-        {# Phase 7 — Expand / Collapse group controls (only meaningful
-           for multi-row-field pivots) #}
-        <div class="btn-group btn-group-sm me-2" role="group" aria-label="Row groups">
-          <button id="expandAllBtn"   class="btn btn-outline-secondary" type="button" disabled
-                  title="Expand all row groups">
-            <i class="bi bi-arrows-expand me-1"></i>Expand All
-          </button>
-          <button id="collapseAllBtn" class="btn btn-outline-secondary" type="button" disabled
-                  title="Collapse all row groups">
-            <i class="bi bi-arrows-collapse me-1"></i>Collapse All
-          </button>
-        </div>
-
-        <button id="validateBtn" class="btn btn-outline-info btn-sm" disabled title="Validate configuration">
+        <button id="validateBtn" class="btn btn-outline-secondary btn-sm" disabled title="Check the configuration without computing">
           <i class="bi bi-shield-check me-1"></i>Validate
         </button>
         <button id="computeBtn" class="btn btn-primary btn-sm" disabled title="Generate pivot">
-          <i class="bi bi-calculator me-1"></i>Generate Pivot
+          <i class="bi bi-play-fill me-1"></i>Generate pivot
         </button>
-        <button id="exportBtn" class="btn btn-outline-success btn-sm" disabled title="Export current grid view to Excel">
-          <i class="bi bi-download me-1"></i>Export
+        <span id="loadingSpinner" class="spinner-border spinner-border-sm d-none" style="color:var(--accent)" role="status" aria-hidden="true"></span>
+
+        <span class="ms-auto small text-muted d-none d-md-inline" id="metaStats"></span>
+        <button id="exportBtn" class="btn btn-outline-success btn-sm" disabled title="Export the current grid view to Excel">
+          <i class="bi bi-file-earmark-excel me-1"></i>Export
         </button>
-        <button id="drilldownBtn" class="btn btn-outline-primary btn-sm" disabled
-                title="Drill down into the underlying records of the selected pivot row(s)">
-          <i class="bi bi-search me-1"></i>Drill-down
+        <button id="printBtn" class="btn btn-outline-secondary btn-sm" type="button" title="Print pivot" disabled>
+          <i class="bi bi-printer"></i>
         </button>
-        <button id="emailBtn" class="btn btn-outline-info btn-sm" disabled
-                title="Send the selected pivot row(s) + drill-down attachment by email">
-          <i class="bi bi-envelope me-1"></i>Send Email
-        </button>
-        <button id="deleteRecordsBtn" class="btn btn-outline-danger btn-sm" disabled
-                title="Soft-delete the raw records behind the selected pivot row(s)">
-          <i class="bi bi-trash3 me-1"></i>Delete Records
-        </button>
-
-        {# Phase 7 — grid-level actions: Columns, Auto-fit, Copy, Print #}
-        <div class="btn-group btn-group-sm ms-1" role="group" aria-label="Grid actions">
-          <div class="dropdown">
-            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
-                    id="pivotColumnsBtn" data-bs-toggle="dropdown" aria-expanded="false"
-                    title="Show / hide / freeze columns" disabled>
-              <i class="bi bi-columns me-1"></i>Columns
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end" id="pivotColumnsMenu"
-                style="min-width: 240px; max-height: 360px; overflow-y: auto">
-              <li><h6 class="dropdown-header">Show / hide columns</h6></li>
-              <li><span class="dropdown-item text-muted small" id="pivotColumnsEmptyMsg">No columns yet</span></li>
-            </ul>
-          </div>
-          <div class="dropdown">
-            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
-                    id="pivotFreezeBtn" data-bs-toggle="dropdown" aria-expanded="false"
-                    title="Freeze columns to the left" disabled>
-              <i class="bi bi-pin-angle me-1"></i>Freeze
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end" id="pivotFreezeMenu"
-                style="min-width: 220px; max-height: 360px; overflow-y: auto">
-              <li><h6 class="dropdown-header">Freeze columns</h6></li>
-              <li><span class="dropdown-item text-muted small" id="pivotFreezeEmptyMsg">No columns yet</span></li>
-            </ul>
-          </div>
-          <button id="resetColumnsBtn" class="btn btn-outline-secondary btn-sm" type="button"
-                  title="Show / unfreeze every column" disabled>
-            <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
-          </button>
-
-          <div class="dropdown">
-            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
-                    id="autoFitBtn" data-bs-toggle="dropdown" aria-expanded="false"
-                    title="Auto-fit column widths" disabled>
-              <i class="bi bi-arrows-angle-expand me-1"></i>Auto-fit
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="autoFitBtn">
-              <li>
-                <button id="autoFitColBtn" class="dropdown-item" type="button">
-                  <i class="bi bi-textarea-resize me-2"></i>Auto-fit current page
-                </button>
-              </li>
-              <li>
-                <button id="autoFitAllBtn" class="dropdown-item" type="button">
-                  <i class="bi bi-arrows-fullscreen me-2"></i>Auto-fit all columns
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          <div class="dropdown">
-            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
-                    id="copyBtn" data-bs-toggle="dropdown" aria-expanded="false"
-                    title="Copy to clipboard (paste into Excel)" disabled>
-              <i class="bi bi-clipboard me-1"></i>Copy
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="copyBtn">
-              <li>
-                <button id="copyCellsBtn" class="dropdown-item" type="button">
-                  <i class="bi bi-square me-2"></i>Selected cells
-                </button>
-              </li>
-              <li>
-                <button id="copyRowsBtn" class="dropdown-item" type="button">
-                  <i class="bi bi-list me-2"></i>Selected rows
-                </button>
-              </li>
-              <li>
-                <button id="copyWithHeadersBtn" class="dropdown-item" type="button">
-                  <i class="bi bi-list-columns me-2"></i>Selected rows with headers
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          <button id="printBtn" class="btn btn-outline-secondary btn-sm" type="button"
-                  title="Print pivot (title + dataset + table + totals + date)" disabled>
-            <i class="bi bi-printer me-1"></i>Print
-          </button>
-        </div>
-
-        <span id="loadingSpinner"
-              class="spinner-border spinner-border-sm text-primary d-none ms-2"
-              role="status"
-              aria-hidden="true"></span>
-        <span class="ms-auto small text-muted" id="metaStats"></span>
       </div>
     </div>
 
-    {# Error alert — global error surface for the right panel #}
     <div id="errorAlert" class="alert alert-danger d-none" role="alert"></div>
 
-    {# Validation result panel — kept from Phase 3, the spec says keep it #}
-    <div id="validationPanel" class="card border-0 shadow-sm mb-3" style="display:none">
-      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-shield-check me-2 text-info"></i>Validation</span>
+    <div id="validationPanel" class="card mb-3" style="display:none">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-shield-check me-2"></i>Validation</span>
         <span id="validationBadge" class="badge"></span>
       </div>
       <div class="card-body" id="validationBody"></div>
     </div>
 
-    {# Truncation warning (when backend had to cap the result) #}
-    <div id="warningBanner"
-         class="alert alert-warning d-flex align-items-center"
-         role="alert"
-         style="display:none">
-      <i class="bi bi-exclamation-triangle me-2"></i>
-      <span id="warningText"></span>
+    <div id="warningBanner" class="alert alert-warning" role="alert" style="display:none">
+      <i class="bi bi-exclamation-triangle me-2"></i><span id="warningText"></span>
     </div>
 
-    {# Pivot Statistics panel — Phase 4 #}
-    <div class="card border-0 shadow-sm mb-3" id="statsCard" style="display:none">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-info-circle me-2 text-info"></i>Pivot Statistics
-      </div>
-      <div class="card-body">
-        <div class="row g-2" id="statsGrid">
-          {# Filled by PivotStats.render() #}
-        </div>
+    <div class="card mb-3" id="statsCard" style="display:none">
+      <div class="card-body py-3">
+        <div class="row g-2" id="statsGrid"></div>
       </div>
     </div>
 
-    {# Selection summary bar — Phase 4 #}
-    <div class="card border-0 shadow-sm mb-3" id="selectionCard" style="display:none">
-      <div class="card-body py-2 d-flex flex-wrap align-items-center gap-3">
-        <span class="fw-semibold">
-          <i class="bi bi-check2-square me-1"></i>Selection
-        </span>
+    <div class="card mb-3 selection-bar" id="selectionCard" style="display:none">
+      <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
         <span class="small">
           <span class="badge bg-primary" id="selectedCount">0</span>
-          <span class="text-muted">rows selected of</span>
-          <span id="visibleCount" class="fw-semibold">0</span>
-          <span class="text-muted">visible</span>
+          <span class="text-muted">of</span> <span id="visibleCount" class="fw-semibold">0</span>
+          <span class="text-muted">rows selected</span>
+          <span class="text-muted ms-2 d-none d-sm-inline">· groups</span>
+          <span id="selectedGroups" class="fw-semibold d-none d-sm-inline">0</span>
         </span>
-        <span class="small text-muted">
-          <i class="bi bi-people me-1"></i>Groups:
-          <span id="selectedGroups" class="fw-semibold">0</span>
-        </span>
-        <div class="ms-auto btn-group btn-group-sm" role="group" aria-label="Selection actions">
-          <button type="button" id="selectAllBtn" class="btn btn-outline-primary"
-                  title="Select all visible rows">
-            <i class="bi bi-check-all me-1"></i>Select All
+        <div class="btn-group btn-group-sm" role="group" aria-label="Selection">
+          <button type="button" id="selectAllBtn" class="btn btn-outline-secondary" title="Select all visible rows"><i class="bi bi-check-all me-1"></i>All</button>
+          <button type="button" id="clearSelectionBtn" class="btn btn-outline-secondary" title="Clear selection"><i class="bi bi-x-lg me-1"></i>None</button>
+        </div>
+        <div class="ms-auto d-flex flex-wrap gap-2">
+          <button id="drilldownBtn" class="btn btn-outline-primary btn-sm" disabled title="Show the records behind the selected row(s)">
+            <i class="bi bi-zoom-in me-1"></i>Drill down
           </button>
-          <button type="button" id="clearSelectionBtn" class="btn btn-outline-secondary"
-                  title="Clear selection">
-            <i class="bi bi-x-lg me-1"></i>Clear
+          <button id="emailBtn" class="btn btn-outline-primary btn-sm" disabled title="Email the selected row(s) with the records attached">
+            <i class="bi bi-envelope me-1"></i>Email
+          </button>
+          <button id="deleteRecordsBtn" class="btn btn-outline-danger btn-sm" disabled title="Hide the records behind the selected row(s)">
+            <i class="bi bi-trash3 me-1"></i>Delete records
           </button>
         </div>
       </div>
     </div>
 
-    {# Pivot result grid — Phase 4 #}
-    <div class="card border-0 shadow-sm mb-3" id="pivotCard" style="display:none">
-      <div class="card-header">
-        <i class="bi bi-table me-2 text-success"></i>
-        <span class="fw-semibold">Pivot Result</span>
-        <input id="gridSearch"
-               type="text"
-               class="form-control form-control-sm ms-auto"
-               style="max-width: 240px"
-               placeholder="Search rows…"
-               aria-label="Search pivot rows">
+    <div class="card mb-3" id="pivotCard" style="display:none">
+      <div class="card-header d-flex flex-wrap align-items-center gap-2 py-2">
+        <span class="me-1">Result</span>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Row groups">
+          <button id="expandAllBtn" class="btn btn-outline-secondary" type="button" disabled title="Expand all row groups"><i class="bi bi-arrows-expand"></i></button>
+          <button id="collapseAllBtn" class="btn btn-outline-secondary" type="button" disabled title="Collapse all row groups"><i class="bi bi-arrows-collapse"></i></button>
+        </div>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Grid actions">
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="pivotColumnsBtn"
+                    data-bs-toggle="dropdown" aria-expanded="false" title="Show / hide columns" disabled>
+              <i class="bi bi-layout-three-columns"></i><span class="d-none d-xl-inline ms-1">Columns</span>
+            </button>
+            <ul class="dropdown-menu" id="pivotColumnsMenu" style="min-width: 240px; max-height: 360px; overflow-y: auto">
+              <li><h6 class="dropdown-header">Show / hide columns</h6></li>
+              <li><span class="dropdown-item text-muted small" id="pivotColumnsEmptyMsg">No columns yet</span></li>
+            </ul>
+          </div>
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="pivotFreezeBtn"
+                    data-bs-toggle="dropdown" aria-expanded="false" title="Freeze columns to the left" disabled>
+              <i class="bi bi-pin-angle"></i><span class="d-none d-xl-inline ms-1">Freeze</span>
+            </button>
+            <ul class="dropdown-menu" id="pivotFreezeMenu" style="min-width: 220px; max-height: 360px; overflow-y: auto">
+              <li><h6 class="dropdown-header">Freeze columns</h6></li>
+              <li><span class="dropdown-item text-muted small" id="pivotFreezeEmptyMsg">No columns yet</span></li>
+            </ul>
+          </div>
+          <button id="resetColumnsBtn" class="btn btn-outline-secondary btn-sm" type="button" title="Show and unfreeze every column" disabled>
+            <i class="bi bi-arrow-counterclockwise"></i>
+          </button>
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="autoFitBtn"
+                    data-bs-toggle="dropdown" aria-expanded="false" title="Auto-fit column widths" disabled>
+              <i class="bi bi-arrows-angle-expand"></i>
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="autoFitBtn">
+              <li><button id="autoFitColBtn" class="dropdown-item" type="button"><i class="bi bi-textarea-resize me-2"></i>Auto-fit current page</button></li>
+              <li><button id="autoFitAllBtn" class="dropdown-item" type="button"><i class="bi bi-arrows-fullscreen me-2"></i>Auto-fit all columns</button></li>
+            </ul>
+          </div>
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="copyBtn"
+                    data-bs-toggle="dropdown" aria-expanded="false" title="Copy to clipboard (paste into Excel)" disabled>
+              <i class="bi bi-clipboard"></i>
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="copyBtn">
+              <li><button id="copyCellsBtn" class="dropdown-item" type="button"><i class="bi bi-square me-2"></i>Selected cells</button></li>
+              <li><button id="copyRowsBtn" class="dropdown-item" type="button"><i class="bi bi-list me-2"></i>Selected rows</button></li>
+              <li><button id="copyWithHeadersBtn" class="dropdown-item" type="button"><i class="bi bi-list-columns me-2"></i>Selected rows with headers</button></li>
+            </ul>
+          </div>
+        </div>
+        <div class="input-group input-group-sm ms-auto" style="max-width: 240px">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input id="gridSearch" type="search" class="form-control" placeholder="Search rows…" aria-label="Search pivot rows">
+        </div>
       </div>
       <div class="card-body p-0 position-relative">
-        <div id="pivotGrid" class="ag-theme-alpine" style="height: 520px; width: 100%;"></div>
+        <div id="pivotGrid" class="ag-theme-alpine" style="height: 560px; width: 100%;"></div>
         <div id="gridLoadingOverlay"
              class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center d-none"
              aria-hidden="true">
           <div class="text-center">
-            <div class="spinner-border text-primary mb-2" role="status">
-              <span class="visually-hidden">Loading…</span>
-            </div>
+            <div class="spinner-border mb-2" style="color:var(--accent)" role="status"><span class="visually-hidden">Loading…</span></div>
             <div class="small text-muted">Computing pivot…</div>
           </div>
         </div>
       </div>
     </div>
 
-    {# Empty state — shown when no pivot has been generated yet.
-       Visible by default; the controller hides it once a result is
-       rendered and shows it again whenever results are cleared. #}
-    <div class="card border-0 shadow-sm mb-3" id="emptyState">
-      <div class="card-body text-center py-5">
-        <i class="bi bi-table display-1 text-muted opacity-50"></i>
-        <h5 class="mt-3 mb-1">No pivot generated yet</h5>
-        <p class="text-muted mb-0">
-          Select a dataset on the left, configure your rows / values / filters,
-          then click <strong>Generate Pivot</strong>.
-        </p>
+    <div class="card mb-3" id="emptyState">
+      <div class="empty-state">
+        <div class="empty-icon"><i class="bi bi-grid-3x3-gap"></i></div>
+        <h3>No pivot yet</h3>
+        <p>Choose a dataset, add fields to <strong>Rows</strong> and <strong>Values</strong>, then click <strong>Generate pivot</strong>.</p>
       </div>
     </div>
 
-    {# Raw JSON debug (collapsible) — kept from Phase 3 #}
-    <div class="card border-0 shadow-sm mt-3" id="debugCard" style="display:none">
-      <div class="card-header fw-semibold"
-           data-bs-toggle="collapse"
-           data-bs-target="#debugCollapse"
-           style="cursor:pointer">
-        <i class="bi bi-code me-2 text-muted"></i>API Request &amp; Response (debug)
-        <i class="bi bi-chevron-down float-end"></i>
+    <div class="card mt-3" id="debugCard" style="display:none">
+      <div class="card-header d-flex align-items-center" data-bs-toggle="collapse" data-bs-target="#debugCollapse"
+           role="button" aria-expanded="false" aria-controls="debugCollapse">
+        <span><i class="bi bi-code-slash me-2"></i>API request &amp; response</span>
+        <i class="bi bi-chevron-down ms-auto"></i>
       </div>
       <div class="collapse" id="debugCollapse">
         <div class="card-body">
           <div class="row g-3">
             <div class="col-lg-6">
-              <label class="form-label small fw-bold">Request sent</label>
-              <pre id="requestJson" class="p-2 rounded small"
-                   style="max-height: 220px; overflow: auto"></pre>
+              <div class="form-label">Request</div>
+              <pre id="requestJson" class="small mb-0" style="max-height: 260px"></pre>
             </div>
             <div class="col-lg-6">
-              <label class="form-label small fw-bold">Response received</label>
-              <pre id="responseJson" class="p-2 rounded small"
-                   style="max-height: 220px; overflow: auto"></pre>
+              <div class="form-label">Response</div>
+              <pre id="responseJson" class="small mb-0" style="max-height: 260px"></pre>
             </div>
           </div>
         </div>
@@ -879,74 +671,67 @@
    every other element on the page. #}
 <div id="pivotPrintView" class="pivot-print-view" style="display:none"></div>
 
-{# ────────────────────────────────────────────────────────────────────────
-   DELETE RECORDS MODAL — Phase 8
-   Confirmation dialog for soft-deleting the raw records behind the
-   selected pivot row(s). Shows the count, criteria, dataset, sheet,
-   and a clear warning that this affects the source data.
-   ──────────────────────────────────────────────────────────────────────── #}
-<div class="modal fade" id="deleteRecordsModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+{# Filter values modal (multi-select) #}
+<div class="modal fade" id="filterModal" tabindex="-1" aria-labelledby="filterModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">
-          <i class="bi bi-exclamation-triangle text-warning me-2"></i>Delete records
-        </h5>
+        <h5 class="modal-title" id="filterModalLabel">Filter values</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <p>
-          The following pivot rows will be removed from the result, and the
-          <strong>raw source records</strong> behind them will be soft-deleted.
-          The deleted records will no longer appear in the pivot, drill-down,
-          exports, or email attachments.
-        </p>
-        <dl class="row small mb-3">
-          <dt class="col-sm-4">Dataset</dt>
-          <dd class="col-sm-8" id="delDatasetName">—</dd>
-          <dt class="col-sm-4">Sheet</dt>
-          <dd class="col-sm-8" id="delSheetName">—</dd>
-          <dt class="col-sm-4">Pivot rows</dt>
-          <dd class="col-sm-8" id="delPivotRowsCount">0</dd>
-          <dt class="col-sm-4">Selection criteria</dt>
-          <dd class="col-sm-8"><pre id="delCriteria" class="small mb-0"
-                                   style="max-height:160px;overflow:auto;white-space:pre-wrap;"></pre></dd>
-        </dl>
-        <div class="alert alert-warning small mb-0">
-          <i class="bi bi-shield-exclamation me-1"></i>
-          This operation affects the source data. Soft-deleted records can be
-          recovered from the audit trail; a hard-delete is available from the
-          Admin &rarr; Cleanup utility.
+        <div class="input-group input-group-sm mb-2">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input id="filterSearch" type="search" class="form-control" placeholder="Search values…" aria-label="Search values">
         </div>
-        <div id="delResultArea" class="mt-3" style="display:none"></div>
+        <div class="d-flex justify-content-between mb-2">
+          <button id="filterSelectAll" type="button" class="btn btn-sm btn-link p-0">Select all</button>
+          <button id="filterSelectNone" type="button" class="btn btn-sm btn-link p-0">Clear</button>
+        </div>
+        <div id="filterValueList" class="list-group" style="max-height: 360px; overflow-y: auto;"></div>
+        <p class="small text-muted mt-2 mb-0">Nothing selected means no filter on this field.</p>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-danger" id="confirmDeleteBtn">
-          <i class="bi bi-trash3 me-1"></i>Yes, delete
-        </button>
+        <button type="button" class="btn btn-primary" id="filterApplyBtn"><i class="bi bi-check2 me-1"></i>Apply</button>
       </div>
     </div>
   </div>
 </div>
 
-{# Draft recovery banner — Phase 8. Shown when a saved draft is
-   available on page load. Lets the user restore or discard. #}
-<div id="draftRecoveryBanner" class="alert alert-info alert-dismissible d-none mb-3"
-     role="alert" style="position:sticky;top:0;z-index:1030;">
-  <div class="d-flex align-items-center gap-2">
-    <i class="bi bi-arrow-counterclockwise me-1"></i>
-    <div>
-      A previous pivot session was found.
-      <span class="small text-muted ms-1" id="draftRecoveryMeta"></span>
-    </div>
-    <div class="ms-auto d-flex gap-2">
-      <button type="button" class="btn btn-sm btn-primary" id="restoreDraftBtn">
-        <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
-      </button>
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="discardDraftBtn">
-        <i class="bi bi-x-lg me-1"></i>Discard
-      </button>
+{# Delete Records confirmation — shows dataset, sheet, criteria and the
+   dry-run count of source records before anything is deleted. #}
+<div class="modal fade" id="deleteRecordsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title">Delete records</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">
+          The source records behind the selected pivot rows will be hidden from the pivot,
+          drill-down, exports and email attachments. The uploaded file itself is not modified.
+        </p>
+        <dl class="kv mb-3">
+          <dt>Dataset</dt><dd id="delDatasetName">—</dd>
+          <dt>Sheet</dt><dd id="delSheetName">—</dd>
+          <dt>Pivot rows</dt><dd id="delPivotRowsCount">0</dd>
+        </dl>
+        <div class="form-label">Selection criteria</div>
+        <pre id="delCriteria" class="small mb-3" style="max-height:160px;white-space:pre-wrap;"></pre>
+        <div id="delResultArea" style="display:none"></div>
+        <div class="small text-muted mt-3">
+          <i class="bi bi-shield-check me-1"></i>Every delete is recorded in the
+          <a href="/admin/audit" target="_blank" rel="noopener">delete audit</a>.
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmDeleteBtn" disabled>
+          <i class="bi bi-trash3 me-1"></i>Delete records
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -1098,13 +883,13 @@
    (destroy+recreate on every render) + the soft-delete row-key fix
    would not propagate to users who had the page open before the fixes
    were deployed. Bump the version whenever a JS file in this list changes. #}
-<script src="/static/js/pivot-grid.js?v=2"></script>
-<script src="/static/js/pivot-export.js?v=2"></script>
-<script src="/static/js/pivot-display.js?v=2"></script>
+<script src="/static/js/pivot-grid.js?v=6"></script>
+<script src="/static/js/pivot-export.js?v=6"></script>
+<script src="/static/js/pivot-display.js?v=6"></script>
 <script src="/static/js/pivot.js?v=6"></script>
-<script src="/static/js/drilldown-selection.js?v=2"></script>
-<script src="/static/js/drilldown-export.js?v=2"></script>
-<script src="/static/js/drilldown-manager.js?v=2"></script>
-<script src="/static/js/preview-manager.js?v=2"></script>
-<script src="/static/js/email-manager.js?v=5"></script>
+<script src="/static/js/drilldown-selection.js?v=6"></script>
+<script src="/static/js/drilldown-export.js?v=6"></script>
+<script src="/static/js/drilldown-manager.js?v=6"></script>
+<script src="/static/js/preview-manager.js?v=6"></script>
+<script src="/static/js/email-manager.js?v=6"></script>
 {% endblock %}

@@ -35,6 +35,7 @@ from __future__ import annotations
 import glob
 import os
 import shutil
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -107,11 +108,20 @@ def _orphaned_uploads(db: Session) -> List[str]:
                     valid.add(d.stored_filename)
         except Exception:
             pass
+    # An upload writes its file a moment before the dataset row is
+    # committed; skip very recent files so Cleanup can't delete an
+    # upload that is still in progress.
+    min_age_seconds = 15 * 60
+    now = time.time()
     out: List[str] = []
     for fn in os.listdir(UPLOAD_DIR):
         full = os.path.join(UPLOAD_DIR, fn)
-        if os.path.isfile(full) and fn not in valid:
-            out.append(full)
+        try:
+            if (os.path.isfile(full) and fn not in valid
+                    and now - os.path.getmtime(full) > min_age_seconds):
+                out.append(full)
+        except OSError:
+            continue
     return out
 
 

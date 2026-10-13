@@ -1,87 +1,74 @@
 {% extends "base.html" %}
-{% block title %}Application Settings — {{ app_name or "Pivot App" }}{% endblock %}
+{% block title %}Settings — {{ app_name() }}{% endblock %}
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h2 class="fw-bold mb-0">
-    <i class="bi bi-gear-fill me-2 text-primary"></i>Application Settings
-  </h2>
-  <div class="d-flex align-items-center gap-2">
-    <span class="badge bg-body-tertiary border">
-      <i class="bi bi-tag me-1"></i>v{{ version }}
-    </span>
-    <a href="/diagnostics" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-activity me-1"></i>Diagnostics
-    </a>
+<header class="page-header">
+  <div>
+    <div class="page-eyebrow">Admin</div>
+    <h1 class="page-title">Application settings</h1>
+    <p class="page-subtitle">Branding, timezone and upload limits, plus the status of email and the user directory.</p>
   </div>
-</div>
+  <div class="page-actions">
+    <span class="badge bg-secondary"><i class="bi bi-tag me-1"></i>v{{ app_version }}</span>
+    <a href="/diagnostics" class="btn btn-outline-secondary btn-sm"><i class="bi bi-activity me-1"></i>Diagnostics</a>
+  </div>
+</header>
 
 <div class="row g-4">
-  <div class="col-lg-7">
-    <div class="card border-0 shadow-sm">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-sliders me-2 text-primary"></i>General
-      </div>
+  <div class="col-xl-8">
+    <div class="card">
+      <div class="card-header">General</div>
       <div class="card-body">
         <form id="settingsForm" autocomplete="off">
           <div class="row g-3">
             <div class="col-md-6">
-              <label for="applicationName" class="form-label small fw-bold">Application Name</label>
-              <input id="applicationName" type="text" class="form-control"
-                     placeholder="Pivot App" maxlength="80">
-              <div class="form-text small">Used in the navbar, the page title, and email footers.</div>
+              <label for="applicationName" class="form-label">Application name</label>
+              <input id="applicationName" type="text" class="form-control" placeholder="Pivot App" maxlength="80">
+              <div class="form-text">Shown in the sidebar and browser tab.</div>
             </div>
             <div class="col-md-6">
-              <label for="companyName" class="form-label small fw-bold">Company Name</label>
-              <input id="companyName" type="text" class="form-control"
-                     placeholder="Your Company" maxlength="120">
+              <label for="companyName" class="form-label">Company name</label>
+              <input id="companyName" type="text" class="form-control" placeholder="Your Company" maxlength="120">
             </div>
             <div class="col-md-6">
-              <label for="timezone" class="form-label small fw-bold">Timezone</label>
-              <input id="timezone" type="text" class="form-control"
-                     placeholder="UTC" list="tzList" maxlength="80">
+              <label for="timezone" class="form-label">Timezone</label>
+              <input id="timezone" type="text" class="form-control" placeholder="Asia/Kolkata" list="tzList" maxlength="80">
               <datalist id="tzList">
+                <option value="Asia/Kolkata"></option>
                 <option value="UTC"></option>
+                <option value="Asia/Singapore"></option>
+                <option value="Asia/Dubai"></option>
+                <option value="Asia/Tokyo"></option>
+                <option value="Europe/London"></option>
+                <option value="Europe/Berlin"></option>
+                <option value="Europe/Paris"></option>
                 <option value="America/New_York"></option>
                 <option value="America/Chicago"></option>
                 <option value="America/Denver"></option>
                 <option value="America/Los_Angeles"></option>
-                <option value="Europe/London"></option>
-                <option value="Europe/Berlin"></option>
-                <option value="Europe/Paris"></option>
-                <option value="Asia/Tokyo"></option>
-                <option value="Asia/Kolkata"></option>
-                <option value="Asia/Singapore"></option>
                 <option value="Australia/Sydney"></option>
               </datalist>
-              <div class="form-text small">IANA name (UTC, Europe/London, Asia/Kolkata, …).</div>
+              <div class="form-text">Any IANA name (e.g. Europe/London) or a fixed offset such as +05:30.</div>
             </div>
             <div class="col-md-6">
-              <label for="maxUploadMb" class="form-label small fw-bold">Maximum Upload Size (MB)</label>
-              <input id="maxUploadMb" type="number" class="form-control"
-                     min="1" max="2048" step="1">
-              <div class="form-text small">Files larger than this are rejected with a friendly message.</div>
+              <label for="maxUploadMb" class="form-label">Maximum upload size (MB)</label>
+              <input id="maxUploadMb" type="number" class="form-control" min="1" max="500" step="1">
+              <div class="form-text">1–500 MB. Larger files are rejected with a clear message.</div>
             </div>
-            <div class="col-md-12">
-              <label for="defaultExportDir" class="form-label small fw-bold">Default Export Folder</label>
+            <div class="col-12">
+              <label for="defaultExportDir" class="form-label">Default export folder</label>
               <input id="defaultExportDir" type="text" class="form-control"
-                     placeholder="/app/generated_reports (read-only display; configured via environment)">
-              <div class="form-text small text-muted">
-                <i class="bi bi-info-circle me-1"></i>
-                The actual export folder is set by the <code>REPORTS_DIR</code> environment variable at container start.
-                This field records the preferred value for documentation purposes only.
+                     placeholder="/app/generated_reports">
+              <div class="form-text">
+                For reference only — the real folder is set by the <code>REPORTS_DIR</code> environment variable.
               </div>
             </div>
           </div>
 
-          <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
-            <button type="submit" class="btn btn-primary" id="saveBtn">
-              <i class="bi bi-save me-1"></i>Save Settings
-            </button>
-            <button type="button" class="btn btn-outline-secondary" id="resetBtn">
-              <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
-            </button>
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-4 pt-3 border-top">
+            <button type="submit" class="btn btn-primary" id="saveBtn"><i class="bi bi-check2 me-1"></i>Save settings</button>
+            <button type="button" class="btn btn-outline-secondary" id="resetBtn"><i class="bi bi-arrow-counterclockwise me-1"></i>Reset</button>
             <span class="ms-auto small text-muted" id="lastSavedAt"></span>
           </div>
         </form>
@@ -89,83 +76,56 @@
       </div>
     </div>
 
-    <div class="card border-0 shadow-sm mt-3">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-envelope-gear me-2 text-primary"></i>SMTP Configuration
-      </div>
-      <div class="card-body">
-        <p class="text-muted small mb-2">
-          SMTP settings (host, port, username, password, sender) are managed on a dedicated page.
-        </p>
-        <ul class="list-unstyled small mb-3">
-          <li><strong>Host:</strong> <code>{{ smtp_host or "—" }}</code></li>
-          <li><strong>Username:</strong> <code>{{ smtp_username or "—" }}</code></li>
-          <li><strong>Sender:</strong> <code>{{ smtp_sender or "—" }}</code></li>
-          <li>
-            <strong>Status:</strong>
-            {% if smtp_configured %}
-              <span class="badge bg-success-subtle text-success border">
-                <i class="bi bi-check-circle me-1"></i>Configured
-              </span>
-            {% else %}
-              <span class="badge bg-warning-subtle text-warning border">
-                <i class="bi bi-exclamation-triangle me-1"></i>Not configured
-              </span>
-            {% endif %}
-          </li>
-        </ul>
-        <a href="/email/settings" class="btn btn-sm btn-outline-primary">
-          <i class="bi bi-pencil-square me-1"></i>Edit SMTP Settings
-        </a>
-      </div>
-    </div>
-
-    <div class="card border-0 shadow-sm mt-3" id="userDirectoryCard">
-      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-        <span>
-          <i class="bi bi-people-fill me-2 text-info"></i>User Directory
-        </span>
-        <button type="button" class="btn btn-sm btn-outline-primary" id="userDirReloadBtn"
-                title="Reload the directory CSVs from disk right now (also auto-reloads on the next request)">
+    <div class="card mt-4" id="userDirectoryCard">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>User directory</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="userDirReloadBtn"
+                title="Reload the directory CSVs from disk now (they also reload automatically when changed)">
           <i class="bi bi-arrow-clockwise me-1"></i>Reload now
         </button>
       </div>
       <div class="card-body">
-        <p class="text-muted small mb-2">
-          The email composer's typeahead (To / CC / BCC) suggests recipients
-          from two CSVs in the project root: <code>Users.csv</code> (individuals)
-          and <code>DistributionLists.csv</code> (groups).  Both files are
-          auto-reloaded when they change; click <strong>Reload now</strong>
-          after updating either file.
+        <p class="text-muted small">
+          The email composer suggests recipients from <code>Users.csv</code> (people) and
+          <code>DistributionLists.csv</code> (groups) in the project root. Both reload automatically when they change.
         </p>
         <div id="userDirStatus">
-          <div class="text-muted small">
-            <span class="spinner-border spinner-border-sm me-2"></span>Loading status…
-          </div>
+          <div class="text-muted small"><span class="spinner-border spinner-border-sm me-2"></span>Loading status…</div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="col-lg-5">
-    <div class="card border-0 shadow-sm">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-info-circle me-2 text-info"></i>System
+  <div class="col-xl-4">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Email (SMTP)</span>
+        {% if smtp_configured %}
+          <span class="badge bg-success"><span class="status-dot ok"></span>Configured</span>
+        {% else %}
+          <span class="badge bg-warning"><span class="status-dot warn"></span>Not configured</span>
+        {% endif %}
       </div>
       <div class="card-body">
-        <dl class="row mb-0 small">
-          <dt class="col-sm-5">Application Version</dt>
-          <dd class="col-sm-7"><code>v{{ version }}</code></dd>
-          <dt class="col-sm-5">Health Endpoint</dt>
-          <dd class="col-sm-7"><a href="/health" target="_blank" rel="noopener"><code>/health</code></a></dd>
-          <dt class="col-sm-5">Database</dt>
-          <dd class="col-sm-7"><code>{{ smtp_host and "SQLite" or "SQLite" }}</code></dd>
-          <dt class="col-sm-5">Log Viewer</dt>
-          <dd class="col-sm-7"><a href="/logs">/logs</a></dd>
-          <dt class="col-sm-5">Cleanup Utility</dt>
-          <dd class="col-sm-7"><a href="/admin/cleanup">/admin/cleanup</a></dd>
-          <dt class="col-sm-5">Diagnostics</dt>
-          <dd class="col-sm-7"><a href="/diagnostics">/diagnostics</a></dd>
+        <dl class="kv mb-3">
+          <dt>Host</dt><dd><code>{{ smtp_host or "—" }}</code></dd>
+          <dt>Username</dt><dd><code>{{ smtp_username or "—" }}</code></dd>
+          <dt>Sender</dt><dd><code>{{ smtp_sender or "—" }}</code></dd>
+        </dl>
+        <a href="/email/settings" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square me-1"></i>Edit SMTP settings</a>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-header">System</div>
+      <div class="card-body">
+        <dl class="kv">
+          <dt>Version</dt><dd><code>v{{ app_version }}</code></dd>
+          <dt>Database</dt><dd>SQLite</dd>
+          <dt>Health</dt><dd><a href="/health" target="_blank" rel="noopener">/health</a></dd>
+          <dt>Logs</dt><dd><a href="/logs">Log viewer</a></dd>
+          <dt>Audit</dt><dd><a href="/admin/audit">Delete audit</a></dd>
+          <dt>Cleanup</dt><dd><a href="/admin/cleanup">Cleanup utility</a></dd>
         </dl>
       </div>
     </div>
@@ -175,5 +135,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/settings.js"></script>
+<script src="/static/js/settings.js?v=6"></script>
 {% endblock %}

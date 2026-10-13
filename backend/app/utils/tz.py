@@ -27,8 +27,15 @@ for IST everywhere — even the default is IST, not UTC).
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+import time
+from datetime import datetime, timezone, timedelta, tzinfo
 from typing import Optional
+
+try:  # Python 3.9+; the `tzdata` package supplies the database in slim images
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+except ImportError:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
+    ZoneInfoNotFoundError = Exception  # type: ignore
 
 # IANA name for Indian Standard Time.  UTC+5:30, no DST.
 IST_TZ = timezone(timedelta(hours=5, minutes=30), name="IST")
@@ -44,10 +51,10 @@ DEFAULT_TZ_NAME = "Asia/Kolkata"
 # For non-IST timezones we fall back to fixed-offset parsing of the
 # string (e.g. "UTC", "Asia/Kolkata", "+05:30", "UTC+5:30").
 
-_OFFSET_CACHE: dict[str, timezone] = {}
+_OFFSET_CACHE: dict = {}
 
 
-def _parse_offset(name: str) -> timezone:
+def _parse_offset(name: str) -> tzinfo:
     """Parse a short timezone string into a ``datetime.timezone``.
 
     Supports the common shapes the Settings page accepts:
@@ -70,6 +77,13 @@ def _parse_offset(name: str) -> timezone:
         tz = timezone.utc
     elif s == "Asia/Kolkata" or s.upper() == "IST":
         tz = IST_TZ
+    elif "/" in s and ZoneInfo is not None:
+        # Any IANA name (Asia/Singapore, America/New_York, Europe/London…)
+        # — including daylight-saving rules.
+        try:
+            tz = ZoneInfo(s)
+        except (ZoneInfoNotFoundError, ValueError):
+            tz = IST_TZ
     else:
         # Try fixed-offset parsing: "+05:30", "-04:00", "UTC+5:30", "UTC-04:00".
         s2 = s.upper().replace("UTC", "").strip()
@@ -95,23 +109,40 @@ def _parse_offset(name: str) -> timezone:
     return tz
 
 
+_TZ_NAME_CACHE: dict = {"name": None, "at": 0.0}
+_TZ_NAME_TTL = 30.0  # seconds
+
+
+def invalidate_timezone_cache() -> None:
+    """Called after the Settings page saves a new timezone."""
+    _TZ_NAME_CACHE["name"] = None
+    _TZ_NAME_CACHE["at"] = 0.0
+
+
 def _db_timezone_name() -> str:
     """Read the configured timezone from the singleton app_settings
-    row.  We do a direct import inside the function so this module
-    has no circular-import surprises (app_settings_service imports
-    from repositories which can import other things).
+    row. Cached for a few seconds so formatting a page of timestamps
+    doesn't open one database session per timestamp. We import inside
+    the function so this module has no circular-import surprises.
     """
+    now = time.monotonic()
+    cached = _TZ_NAME_CACHE["name"]
+    if cached and now - _TZ_NAME_CACHE["at"] < _TZ_NAME_TTL:
+        return cached
     try:
         from app.services.app_settings_service import get_settings  # type: ignore
         from app.config.database import SessionLocal  # type: ignore
         db = SessionLocal()
         try:
             row = get_settings(db)
-            return (row.timezone or DEFAULT_TZ_NAME)
+            name = row.timezone or DEFAULT_TZ_NAME
         finally:
             db.close()
     except Exception:
-        return DEFAULT_TZ_NAME
+        name = DEFAULT_TZ_NAME
+    _TZ_NAME_CACHE["name"] = name
+    _TZ_NAME_CACHE["at"] = now
+    return name
 
 
 def _to_aware_utc(dt: datetime) -> datetime:

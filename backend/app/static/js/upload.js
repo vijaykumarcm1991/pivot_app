@@ -36,6 +36,18 @@
 
   // ── Click on drop zone opens file picker ─────────────────────────────
   dropZone.addEventListener("click", () => fileInput.click());
+  dropZone.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+  });
+  const clearFileBtn = document.getElementById("clearFileBtn");
+  if (clearFileBtn) {
+    clearFileBtn.addEventListener("click", () => {
+      selectedFile = null;
+      fileInput.value = "";
+      fileInfo.classList.add("d-none");
+      uploadBtn.disabled = true;
+    });
+  }
 
   dropZone.addEventListener("dragover", (e) => {
     e.preventDefault();
@@ -70,7 +82,7 @@
     }
     selectedFile = file;
     fileName.textContent = file.name;
-    fileSize.textContent = `(${formatBytes(file.size)})`;
+    fileSize.textContent = formatBytes(file.size);
     fileInfo.classList.remove("d-none");
     uploadBtn.disabled = false;
   }
@@ -83,15 +95,13 @@
     const formData = new FormData();
     formData.append("file", selectedFile);
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) {
-        showError(data.detail || "Upload failed. Please try again.");
-        return;
-      }
+      // fetchJSON copes with non-JSON error bodies (e.g. a proxy's 413 page).
+      const data = await window.AppUI.fetchJSON("/api/upload", { method: "POST", body: formData });
       window.location.href = `/preview/${data.dataset_id}`;
     } catch (err) {
-      showError("Network error. Please check your connection and try again.");
+      showError(err && err.status
+        ? (err.message || "Upload failed. Please try again.")
+        : "Network error. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }

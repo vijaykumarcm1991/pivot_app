@@ -15,7 +15,6 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -29,7 +28,7 @@ from app.utils.tz import iso_ist, now_ist
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+from app.templating import templates
 
 
 # ── Health endpoint (used by Docker + status pages) ─────────────────────

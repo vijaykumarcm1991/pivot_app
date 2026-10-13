@@ -270,6 +270,10 @@
       },
       onFilterChanged:    () => window.PivotGrid && updateSelectionSummary(),
       onSortChanged:      () => window.PivotGrid && updateSelectionSummary(),
+      // Fill the "N of M rows" counts as soon as the grid has data
+      // (previously they stayed at 0 until the first selection event).
+      onFirstDataRendered: () => window.PivotGrid && updateSelectionSummary(),
+      onRowDataUpdated:    () => window.PivotGrid && updateSelectionSummary(),
       onRowDoubleClicked: (event) => {
         if (typeof context.onRowDoubleClick === "function") {
           try { context.onRowDoubleClick(event && event.data); } catch (_) { /* ignore */ }
@@ -876,6 +880,9 @@
   function parentKeyFor(row, groupRows) {
     if (!row || !groupRows || !groupRows.length) return "";
     const isSubtotal = !!row.__isSubtotal;
+    // The engine provides the group key directly (works for date-grouped
+    // fields and compact layout, where row field names differ).
+    if (isSubtotal && typeof row.__groupKey === "string") return row.__groupKey;
     if (isSubtotal) {
       // Subtotal at the second-to-last level: its parent is the path
       // of the row fields UP TO AND INCLUDING that level (because

@@ -1,132 +1,101 @@
 {% extends "base.html" %}
-{% block title %}Email Settings — Pivot App{% endblock %}
+{% block title %}SMTP settings — {{ app_name() }}{% endblock %}
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h2 class="fw-bold mb-0">
-    <i class="bi bi-envelope-gear me-2 text-primary"></i>Email Settings
-  </h2>
-  <a href="/pivot" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-arrow-left me-1"></i>Back to Pivot
-  </a>
-</div>
+<header class="page-header">
+  <div>
+    <div class="page-eyebrow">Email</div>
+    <h1 class="page-title">SMTP settings</h1>
+    <p class="page-subtitle">The mail server used to send pivot reports. The password is stored on the server and never sent back to the browser.</p>
+  </div>
+  <div class="page-actions">
+    <a href="/email/history" class="btn btn-outline-secondary btn-sm"><i class="bi bi-send-check me-1"></i>Sent history</a>
+    <a href="/pivot" class="btn btn-outline-secondary btn-sm"><i class="bi bi-grid-3x3-gap me-1"></i>Pivot Builder</a>
+  </div>
+</header>
 
 <div class="row g-4">
-  <div class="col-lg-7">
-    <div class="card border-0 shadow-sm">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-server me-2 text-primary"></i>SMTP Configuration
-      </div>
+  <div class="col-xl-8">
+    <div class="card">
+      <div class="card-header">Server</div>
       <div class="card-body">
-
-        <p class="text-muted small">
-          Configure the SMTP server Pivot App uses to send emails.
-          The password is stored locally in SQLite and is never
-          returned to the browser (the form shows a hint when one
-          is already saved).
-        </p>
-
         <form id="smtpForm" autocomplete="off">
           <div class="row g-3">
             <div class="col-md-8">
-              <label for="smtpHost" class="form-label small fw-bold">SMTP Host</label>
-              <input id="smtpHost" type="text" class="form-control"
-                     placeholder="smtp.gmail.com" required>
+              <label for="smtpHost" class="form-label">Host</label>
+              <input id="smtpHost" type="text" class="form-control" placeholder="smtp.office365.com" required>
             </div>
             <div class="col-md-4">
-              <label for="smtpPort" class="form-label small fw-bold">Port</label>
-              <input id="smtpPort" type="number" class="form-control"
-                     min="1" max="65535" value="587" required>
+              <label for="smtpPort" class="form-label">Port</label>
+              <input id="smtpPort" type="number" class="form-control" min="1" max="65535" value="587" required>
             </div>
             <div class="col-md-6">
-              <label for="smtpUsername" class="form-label small fw-bold">Username</label>
-              <input id="smtpUsername" type="text" class="form-control"
-                     placeholder="user@example.com" required>
+              <label for="smtpUsername" class="form-label">Username</label>
+              <input id="smtpUsername" type="text" class="form-control" placeholder="user@example.com" required>
             </div>
             <div class="col-md-6">
-              <label for="smtpPassword" class="form-label small fw-bold">Password</label>
-              <input id="smtpPassword" type="password" class="form-control"
-                     placeholder="•••••••• (leave blank to keep existing)">
-              <div id="passwordHint" class="form-text small text-muted" style="display:none">
-                <i class="bi bi-shield-check me-1"></i>
-                A password is already saved. Leave blank to keep it.
+              <label for="smtpPassword" class="form-label">Password</label>
+              <input id="smtpPassword" type="password" class="form-control" placeholder="Leave blank to keep the saved password">
+              <div id="passwordHint" class="form-text" style="display:none">
+                <i class="bi bi-shield-check me-1"></i>A password is saved. Leave blank to keep it.
               </div>
             </div>
-
-            <div class="col-md-12">
+            <div class="col-12">
               <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" id="smtpUseTls" checked>
-                <label class="form-check-label" for="smtpUseTls">
-                  Use TLS / SSL (recommended)
-                </label>
+                <input class="form-check-input" type="checkbox" role="switch" id="smtpUseTls" checked>
+                <label class="form-check-label" for="smtpUseTls">Use TLS</label>
               </div>
-            </div>
-
-            <div class="col-md-6">
-              <label for="smtpSenderName" class="form-label small fw-bold">Sender Name</label>
-              <input id="smtpSenderName" type="text" class="form-control"
-                     placeholder="Pivot App Reports">
-            </div>
-            <div class="col-md-6">
-              <label for="smtpSenderEmail" class="form-label small fw-bold">Sender Email</label>
-              <input id="smtpSenderEmail" type="email" class="form-control"
-                     placeholder="reports@example.com" required>
+              <div class="form-text">Port 465 uses implicit SSL; other ports use STARTTLS.</div>
             </div>
           </div>
 
-          <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
-            <button type="submit" class="btn btn-primary" id="saveBtn">
-              <i class="bi bi-save me-1"></i>Save Settings
-            </button>
-            <button type="button" class="btn btn-outline-info" id="testBtn">
-              <i class="bi bi-send me-1"></i>Send Test Email
-            </button>
+          <h2 class="section-title mt-4 mb-3">Sender</h2>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label for="smtpSenderName" class="form-label">Display name</label>
+              <input id="smtpSenderName" type="text" class="form-control" placeholder="Pivot App Reports">
+            </div>
+            <div class="col-md-6">
+              <label for="smtpSenderEmail" class="form-label">Email address</label>
+              <input id="smtpSenderEmail" type="email" class="form-control" placeholder="reports@example.com" required>
+            </div>
+          </div>
+
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-4 pt-3 border-top">
+            <button type="submit" class="btn btn-primary" id="saveBtn"><i class="bi bi-check2 me-1"></i>Save settings</button>
+            <button type="button" class="btn btn-outline-secondary" id="testBtn"><i class="bi bi-send me-1"></i>Send test email</button>
             <span class="ms-auto small text-muted" id="lastSavedAt"></span>
           </div>
         </form>
-
         <div id="alertArea" class="mt-3"></div>
       </div>
     </div>
   </div>
 
-  <div class="col-lg-5">
-    <div class="card border-0 shadow-sm">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-info-circle me-2 text-info"></i>Test Email
-      </div>
+  <div class="col-xl-4">
+    <div class="card">
+      <div class="card-header">Test delivery</div>
       <div class="card-body">
-        <p class="text-muted small">
-          After saving, send a one-off test email to verify your
-          credentials. The test only includes a short "hello"
-          message — no pivot data is attached.
-        </p>
-        <div class="input-group input-group-sm">
+        <p class="text-muted small">Save first, then send a short test message (no pivot data) to confirm the credentials work.</p>
+        <div class="input-group">
           <span class="input-group-text"><i class="bi bi-envelope"></i></span>
-          <input id="testRecipient" type="email" class="form-control"
-                 placeholder="recipient@example.com">
-          <button id="sendTestInlineBtn" class="btn btn-outline-info" type="button">
+          <input id="testRecipient" type="email" class="form-control" placeholder="you@example.com" aria-label="Test recipient">
+          <button id="sendTestInlineBtn" class="btn btn-outline-primary" type="button" title="Send test email">
             <i class="bi bi-send"></i>
           </button>
         </div>
       </div>
     </div>
 
-    <div class="card border-0 shadow-sm mt-3">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-clock-history me-2 text-secondary"></i>Recent Activity
-      </div>
-      <div class="card-body">
-        <p class="text-muted small mb-2">Quick links to keep you moving:</p>
-        <div class="d-grid gap-2">
-          <a href="/email/history" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-list-ul me-1"></i>View Email History
-          </a>
-          <a href="/pivot" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-table me-1"></i>Open Pivot Builder
-          </a>
-        </div>
+    <div class="card mt-4">
+      <div class="card-header">Tips</div>
+      <div class="card-body small text-muted">
+        <ul class="ps-3 mb-0">
+          <li class="mb-1">Office 365: <code>smtp.office365.com</code>, port <code>587</code>, TLS on.</li>
+          <li class="mb-1">Gmail: <code>smtp.gmail.com</code>, port <code>587</code>, use an app password.</li>
+          <li>Internal relays often use port <code>25</code> with TLS off.</li>
+        </ul>
       </div>
     </div>
   </div>
@@ -135,5 +104,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/smtp-settings.js"></script>
+<script src="/static/js/smtp-settings.js?v=6"></script>
 {% endblock %}

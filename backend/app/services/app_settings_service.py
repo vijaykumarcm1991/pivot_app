@@ -16,8 +16,9 @@ from typing import Any, Dict
 from sqlalchemy.orm import Session
 
 from app.repositories import app_settings_repository as repo
+from app.config.settings import MAX_UPLOAD_CEILING_BYTES
 from app.models.app_settings import APP_VERSION
-from app.utils.tz import iso_ist
+from app.utils.tz import invalidate_timezone_cache, iso_ist
 
 
 def get_settings(db: Session):
@@ -62,11 +63,15 @@ def update_from_payload(db: Session, payload: Dict[str, Any]):
             v = 0
         if v < 1024 * 1024:  # minimum 1 MB
             v = 1024 * 1024
-        if v > 2 * 1024 * 1024 * 1024:  # cap at 2 GB
-            v = 2 * 1024 * 1024 * 1024
+        if v > MAX_UPLOAD_CEILING_BYTES:  # nginx's client_max_body_size
+            v = MAX_UPLOAD_CEILING_BYTES
         fields["max_upload_bytes"] = v
     if "defaultExportDir" in payload:
         fields["default_export_dir"] = (payload.get("defaultExportDir") or "").strip()
     if not fields:
         return repo.get_or_create_settings(db)
-    return repo.upsert_settings(db, **fields)
+    row = repo.upsert_settings(db, **fields)
+    invalidate_timezone_cache()
+    from app.templating import invalidate_app_name
+    invalidate_app_name()
+    return row

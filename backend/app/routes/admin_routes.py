@@ -14,7 +14,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -25,7 +24,7 @@ from app.services.app_logging import log_event
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+from app.templating import templates
 
 
 @router.get("/admin/cleanup", response_class=HTMLResponse)

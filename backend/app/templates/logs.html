@@ -1,76 +1,68 @@
 {% extends "base.html" %}
-{% block title %}Log Viewer — Pivot App{% endblock %}
+{% block title %}Logs — {{ app_name() }}{% endblock %}
+{% block content_class %}app-content-wide{% endblock %}
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="fw-bold mb-0">
-    <i class="bi bi-journal-text me-2 text-primary"></i>Log Viewer
-  </h2>
-  <div class="d-flex align-items-center gap-2">
-    <a href="/api/logs/download" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-download me-1"></i>Download Log File
-    </a>
+<header class="page-header">
+  <div>
+    <div class="page-eyebrow">Admin</div>
+    <h1 class="page-title">Log viewer</h1>
+    <p class="page-subtitle">Search recent application events. The full rotating log file can be downloaded.</p>
   </div>
-</div>
+  <div class="page-actions">
+    <a href="/api/logs/download" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>Download log file</a>
+  </div>
+</header>
 
-<div class="card border-0 shadow-sm mb-3">
+<div class="card mb-4">
   <div class="card-body">
-    <form id="logFilterForm" class="row g-2 align-items-end">
-      <div class="col-md-4">
-        <label class="form-label small fw-bold mb-1">Search</label>
-        <input id="logQuery" type="text" class="form-control form-control-sm"
-               placeholder="message or details contains…">
+    <form id="logFilterForm" class="row g-3 align-items-end">
+      <div class="col-lg-4 col-md-6">
+        <label for="logQuery" class="form-label">Search</label>
+        <input id="logQuery" type="search" class="form-control form-control-sm" placeholder="Message or details contains…">
       </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-bold mb-1">Level</label>
+      <div class="col-lg-2 col-md-3 col-6">
+        <label for="logLevel" class="form-label">Level</label>
         <select id="logLevel" class="form-select form-select-sm">
           <option value="">All</option>
-          {% for l in levels %}
-            <option value="{{ l }}">{{ l }}</option>
-          {% endfor %}
+          {% for l in levels %}<option value="{{ l }}">{{ l }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-bold mb-1">Category</label>
+      <div class="col-lg-2 col-md-3 col-6">
+        <label for="logCategory" class="form-label">Category</label>
         <select id="logCategory" class="form-select form-select-sm">
           <option value="">All</option>
-          {% for c in categories %}
-            <option value="{{ c }}">{{ c }}</option>
-          {% endfor %}
+          {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-bold mb-1">From</label>
+      <div class="col-lg-2 col-md-3 col-6">
+        <label for="logDateFrom" class="form-label">From</label>
         <input id="logDateFrom" type="date" class="form-control form-control-sm">
       </div>
-      <div class="col-md-2">
-        <label class="form-label small fw-bold mb-1">To</label>
+      <div class="col-lg-2 col-md-3 col-6">
+        <label for="logDateTo" class="form-label">To</label>
         <input id="logDateTo" type="date" class="form-control form-control-sm">
       </div>
-      <div class="col-12 d-flex gap-2">
-        <button type="submit" class="btn btn-sm btn-primary" id="applyBtn">
-          <i class="bi bi-funnel me-1"></i>Apply
-        </button>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="clearBtn">
-          <i class="bi bi-x-lg me-1"></i>Clear
-        </button>
+      <div class="col-12 d-flex flex-wrap align-items-center gap-2">
+        <button type="submit" class="btn btn-sm btn-primary" id="applyBtn"><i class="bi bi-funnel me-1"></i>Apply</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="clearBtn"><i class="bi bi-x-lg me-1"></i>Clear</button>
         <span class="ms-auto small text-muted" id="resultCount"></span>
       </div>
     </form>
   </div>
 </div>
 
-<div class="card border-0 shadow-sm">
+<div class="card">
   <div class="table-responsive" style="max-height:70vh;">
     <table class="table table-sm table-hover align-middle mb-0">
       <thead>
         <tr>
-          <th style="width:160px;">Timestamp</th>
+          <th style="width:170px;">Time</th>
           <th style="width:90px;">Level</th>
-          <th style="width:120px;">Category</th>
+          <th style="width:130px;">Category</th>
           <th>Message</th>
-          <th style="width:220px;">Source</th>
+          <th style="width:240px;">Source</th>
         </tr>
       </thead>
       <tbody id="logRows">
@@ -83,5 +75,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/logs.js"></script>
+<script src="/static/js/logs.js?v=6"></script>
 {% endblock %}

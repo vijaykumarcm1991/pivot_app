@@ -30,10 +30,6 @@
   const gridSpinner       = document.getElementById("gridSpinner");
   const previewGrid       = document.getElementById("previewGrid");
   const deleteDatasetBtn  = document.getElementById("deleteDatasetBtn");
-  const deleteAlert       = document.getElementById("deleteAlert");
-  const deleteMessage     = document.getElementById("deleteMessage");
-  const confirmDeleteBtn  = document.getElementById("confirmDeleteBtn");
-  const cancelDeleteBtn   = document.getElementById("cancelDeleteBtn");
 
   let gridApi = null;   // AG Grid instance
   let currentDatasetName = "";
@@ -95,7 +91,6 @@
   // ── Load dataset metadata ─────────────────────────────────────────────────
   async function loadDataset(datasetId) {
     hideError();
-    cancelDelete(); // hide any pending delete confirmation
     try {
       const res  = await fetch(`/api/dataset/${datasetId}`);
       if (!res.ok) throw new Error(await res.text());
@@ -279,38 +274,26 @@
   }
 
   // ── Delete dataset functionality ──────────────────────────────────────────
-  deleteDatasetBtn.addEventListener("click", () => {
+  deleteDatasetBtn.addEventListener("click", async () => {
     const datasetId = datasetSelect.value;
     if (!datasetId) return;
-    
-    deleteAlert.classList.remove("d-none");
-    deleteMessage.textContent = `Delete dataset "${currentDatasetName}"? This will also remove the uploaded file and all metadata.`;
-    
-    confirmDeleteBtn.onclick = () => performDelete(datasetId);
-    cancelDeleteBtn.onclick = cancelDelete;
-  });
-  
-  async function performDelete(datasetId) {
+    const ok = await window.AppUI.confirm({
+      title: "Delete dataset?",
+      body: `“${currentDatasetName}” will be removed together with its uploaded file, metadata and soft-deleted records. This cannot be undone.`,
+      confirmText: "Delete dataset",
+      danger: true,
+    });
+    if (!ok) return;
+    deleteDatasetBtn.disabled = true;
     try {
-      const res = await fetch(`/api/dataset/${datasetId}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (res.ok) {
-        alert('Dataset deleted successfully!');
-        window.location.href = '/datasets'; // Redirect to datasets list
-      } else {
-        showError(`Delete failed: ${data.detail || 'Unknown error'}`);
-        cancelDelete();
-      }
+      await window.AppUI.fetchJSON(`/api/dataset/${encodeURIComponent(datasetId)}`, { method: "DELETE" });
+      window.AppUI.toast(`Deleted “${currentDatasetName}”.`, { type: "success" });
+      setTimeout(() => { window.location.href = "/datasets"; }, 500);
     } catch (err) {
-      showError('Network error occurred while deleting dataset.');
-      cancelDelete();
+      deleteDatasetBtn.disabled = false;
+      showError(`Delete failed: ${err.message}`);
     }
-  }
-  
-  function cancelDelete() {
-    deleteAlert.classList.add("d-none");
-    deleteMessage.textContent = "";
-  }
+  });
 
   // ── Auto-select from URL param (?dataset_id=N) ────────────────────────────
   const params    = new URLSearchParams(window.location.search);

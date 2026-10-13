@@ -32,8 +32,13 @@ DISTRIBUTION_LISTS_CSV_PATH = (
     or "/app/DistributionLists.csv"
 )
 
-# Maximum upload size: 50 MB (default; can be lowered at runtime via Settings)
+# Maximum upload size: 50 MB (default; can be changed at runtime via Settings)
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+# Hard ceiling for the runtime setting. Must stay at or below nginx's
+# `client_max_body_size` (nginx/nginx.conf), otherwise nginx rejects the
+# upload with its own HTML 413 page before the app ever sees it.
+MAX_UPLOAD_CEILING_BYTES = 500 * 1024 * 1024
 
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {".xlsx", ".csv"}

@@ -24,6 +24,7 @@ NOTE: Phase 3 also exposes a separate validation endpoint
 request against stored metadata without ever loading the file.
 """
 
+import os
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -42,7 +43,9 @@ from app.schemas.pivot import (
     PivotValue,
     TotalsOptions,
 )
+from app.services import metadata_cache
 from app.services.excel_service import load_sheet_df
+from app.services.row_keys import frame_row_keys
 from app.utils.file_utils import build_upload_path
 
 
@@ -53,7 +56,6 @@ AGGREGATIONS = {
     "min": "min",
     "max": "max",
 }
-PANDAS_AGGREGATIONS = {value: key for key, value in AGGREGATIONS.items()}
 
 DATE_GROUPS = {"year", "quarter", "month", "week", "day"}
 
@@ -141,34 +143,31 @@ def build_pivot(db: Session, request: PivotRequest) -> PivotResponse:
             value_specs,
             request.layout,
             sorting=request.sorting,
+            show_subtotals=bool(totals_opts.show_subtotals),
         )
 
-        # Phase 7: post-process the flat row list with the
-        #  - subtotals
-        #  - repeat-item-labels
-        #  - column-totals row
-        # additions.  Each helper MUTATES `rows` in place to keep the
-        # call site small.
-        if totals_opts.show_subtotals and group_rows:
-            _insert_subtotal_rows(rows, group_rows, value_specs, pivot_columns)
-
         if totals_opts.show_column_totals and group_rows:
-            _insert_column_total_row(rows, filtered_df, group_rows, value_specs, pivot_columns)
+            _insert_column_total_row(
+                rows, filtered_df, group_rows, group_columns, grouped_labels,
+                value_specs, pivot_columns, request.layout,
+            )
 
-    # Apply repeat-item-labels in a single pass after the structure is
-    # finalised.  This works on every row variant (subtotal, grand
-    # total, regular) — the marker rows just have their existing value
-    # preserved.
-    if totals_opts.repeat_item_labels and group_rows:
-        _apply_repeat_item_labels(rows, group_rows)
+    if totals_opts.repeat_item_labels and group_rows and request.layout != "compact":
+        _apply_repeat_item_labels(rows, [_display_group_name(f, grouped_labels) for f in group_rows])
 
-    totals = _compute_totals(
-        filtered_df,
-        value_specs,
-        rows,
-        _display_row_columns(group_rows, grouped_labels, request.layout),
-        totals_opts,
-    )
+    totals = _compute_totals(filtered_df, value_specs, rows, totals_opts)
+    if not totals_opts.show_row_totals:
+        pivot_columns = [c for c in pivot_columns if c != "row_total"]
+
+    # With column groups the grid's grand-total row is keyed by the
+    # per-column names ("sum_Amount | Open"), so add the grand total of
+    # every column (and of row_total) — previously these cells were "—".
+    if totals_opts.show_grand_totals and group_columns and not filtered_df.empty:
+        per_column = _pivot_frame(filtered_df, [], group_columns, value_specs, grouped_labels)
+        if len(per_column):
+            totals["grand"].update(_df_to_records(per_column)[0])
+        if "row_total" in pivot_columns and len(value_specs) == 1:
+            totals["grand"]["row_total"] = totals["grand"].get(_value_label(value_specs[0]))
 
     return PivotResponse(
         rows=rows,
@@ -198,16 +197,47 @@ def build_pivot(db: Session, request: PivotRequest) -> PivotResponse:
     )
 
 
-def build_drilldown(
-    db: Session, request: PivotDrilldownRequest
-) -> PivotDrilldownResponse:
-    """Return raw rows matching a pivot cell selection."""
+# ── Selection matching (drilldown / soft delete / email) ────────────────
+
+def _drilldown_request_for(base: PivotRequest, selection: Dict[str, Any], limit: int) -> PivotDrilldownRequest:
+    data = base.model_dump(by_alias=True) if hasattr(base, "model_dump") else dict(base)
+    data.pop("selection", None)
+    data.pop("limit", None)
+    return PivotDrilldownRequest(**data, selection=selection or {}, limit=limit)
+
+
+def match_selections(
+    db: Session, request: PivotRequest, selections: List[Dict[str, Any]]
+) -> pd.DataFrame:
+    """
+    Return the raw source rows (after soft-delete + filters) represented
+    by the union of `selections` — one {field: value} map per pivot row.
+
+    The sheet is loaded once for all selections and rows are deduplicated
+    by their position in the source, so overlapping selections are never
+    double-counted and genuinely identical records are never collapsed.
+    No row limit is applied; callers cap the output themselves.
+    """
     _validate_layout(request.layout)
     df = _load_dataset_sheet(db, request.dataset_id, request.sheet_name)
     _, _, grouped_labels = _prepare_group_fields(df, request)
     filtered_df = _apply_filters(df, request.filters)
-    matched_df = _apply_selection(filtered_df, request.selection, grouped_labels)
-    limited_df = matched_df.head(max(1, min(request.limit, 5000)))
+    allow_empty = not request.rows
+
+    keep = pd.Series(False, index=filtered_df.index)
+    for selection in selections:
+        matched = _apply_selection(filtered_df, selection or {}, grouped_labels, allow_empty=allow_empty)
+        keep.loc[matched.index] = True
+    return filtered_df.loc[keep]
+
+
+def build_drilldown(
+    db: Session, request: PivotDrilldownRequest
+) -> PivotDrilldownResponse:
+    """Return raw rows matching a pivot cell selection."""
+    matched_df = match_selections(db, request, [request.selection])
+    cap = max(1, min(request.limit, 5000))
+    limited_df = matched_df.head(cap)
 
     return PivotDrilldownResponse(
         rows=_df_to_records(limited_df),
@@ -217,7 +247,7 @@ def build_drilldown(
             "sheet_name": request.sheet_name,
             "matched_rows": int(len(matched_df)),
             "returned_rows": int(len(limited_df)),
-            "limit": int(max(1, min(request.limit, 5000))),
+            "limit": int(cap),
             "selection": request.selection,
         },
     )
@@ -239,19 +269,13 @@ def build_drilldown_multi(
     limit: int = 5000,
 ) -> Dict[str, Any]:
     """
-    Phase 6 — multi-selection drilldown.
+    Multi-selection drilldown used by the email attachment.
 
-    Run the existing single-selection drilldown once per selection,
-    merge the resulting rows, and deduplicate by a stable JSON key
-    so the same raw record is never included twice. Returns the
-    same shape as `build_drilldown()` so the email attachment
-    service can use it as a drop-in replacement.
-
-    The contract of the per-selection call is unchanged — the
-    request body sent to the existing `/api/pivot/drilldown`
-    endpoint is built here from the same payload fields, plus
-    `selection` and `limit`.
+    Returns the union of the raw records behind every selection (each
+    source record at most once) in source order, capped at `limit`.
+    `matched_rows` is the true number of distinct matching records.
     """
+    cap = max(1, int(limit))
     if not selections:
         return {
             "rows": [],
@@ -261,82 +285,96 @@ def build_drilldown_multi(
                 "sheet_name": sheet_name,
                 "matched_rows": 0,
                 "returned_rows": 0,
-                "limit": int(max(1, min(limit, 5000))),
+                "limit": cap,
                 "selections": [],
             },
         }
 
-    seen: set = set()
-    merged_rows: List[Dict[str, Any]] = []
-    merged_columns: List[str] = []
-    total_matched = 0
-    cap = max(1, min(limit, 5000))
-
-    for selection in selections:
-        req = PivotDrilldownRequest(
-            dataset_id=dataset_id,
-            sheet_name=sheet_name,
-            rows=rows,
-            columns=columns,
-            values=values,
-            filters=filters,
-            date_grouping=date_grouping,
-            sorting=sorting,
-            totals=totals,
-            layout=layout,
-            selection=selection,
-            limit=cap,
-        )
-        single = build_drilldown(db, req)
-        total_matched += int(single.metadata.get("matched_rows") or 0)
-
-        if not merged_columns and single.columns:
-            merged_columns = list(single.columns)
-
-        for row in single.rows:
-            key = _dedup_key(row)
-            if key in seen:
-                continue
-            seen.add(key)
-            merged_rows.append(row)
+    if hasattr(totals, "model_dump"):
+        totals = totals.model_dump(by_alias=True)
+    request = PivotRequest(
+        dataset_id=dataset_id,
+        sheet_name=sheet_name,
+        rows=rows,
+        columns=columns,
+        values=values,
+        filters=filters,
+        date_grouping=date_grouping,
+        sorting=sorting,
+        totals=totals or {},
+        layout=layout,
+    )
+    matched_df = match_selections(db, request, selections)
+    limited_df = matched_df.head(cap)
+    out_rows = _df_to_records(limited_df)
 
     return {
-        "rows": merged_rows,
-        "columns": merged_columns,
+        "rows": out_rows,
+        "columns": [str(c) for c in limited_df.columns if not str(c).startswith("__pivot_")],
         "metadata": {
             "dataset_id": dataset_id,
             "sheet_name": sheet_name,
-            "matched_rows": total_matched,
-            "returned_rows": len(merged_rows),
+            "matched_rows": int(len(matched_df)),
+            "returned_rows": len(out_rows),
             "limit": cap,
             "selections": list(selections),
         },
     }
 
 
-def _dedup_key(record: Dict[str, Any]) -> str:
-    """Stable JSON-string dedup key for server-side merging.
+# ── Dataset loading (with soft-delete filter + in-process cache) ────────
 
-    Used only by ``build_drilldown_multi`` to collapse identical raw
-    records within a single request. The frontend has its own
-    independent ``DrilldownSelection.dedupKey()`` for the drilldown
-    modal; the two are never compared across the wire, so they need
-    not produce the same string."""
-    if not isinstance(record, dict):
-        return ""
-    return "|".join(
-        f"{k}={_json_safe(v)!r}"
-        for k in sorted(record.keys())
-        for v in [record.get(k)]
+def _soft_deleted_keys(db: Session, dataset_id: int, sheet_name: str) -> set:
+    from app.models.soft_deleted_record import SoftDeletedRecord
+
+    rows = (
+        db.query(SoftDeletedRecord.source_key)
+        .filter(SoftDeletedRecord.dataset_id == dataset_id)
+        .filter(SoftDeletedRecord.sheet_name == sheet_name)
+        .all()
+    )
+    return {r[0] for r in rows if r[0]}
+
+
+def _soft_deleted_count(db: Session, dataset_id: int, sheet_name: str) -> int:
+    from sqlalchemy import func
+    from app.models.soft_deleted_record import SoftDeletedRecord
+
+    return int(
+        db.query(func.count(SoftDeletedRecord.id))
+        .filter(SoftDeletedRecord.dataset_id == dataset_id)
+        .filter(SoftDeletedRecord.sheet_name == sheet_name)
+        .scalar()
+        or 0
     )
 
 
 def _load_dataset_sheet(db: Session, dataset_id: int, sheet_name: str) -> pd.DataFrame:
+    """
+    Load a sheet as a DataFrame with every soft-deleted record removed.
+
+    The parsed + filtered frame is cached in-process keyed by
+    (dataset, sheet) and validated against the file's mtime and the
+    number of soft-deleted rows, so repeated pivots / drilldowns don't
+    re-parse the workbook. A fresh copy is returned every time because
+    callers add helper columns to it.
+    """
     dataset = get_dataset_by_id(db, dataset_id)
     if not dataset:
         raise PivotError("Dataset not found")
 
     filepath = build_upload_path(dataset.stored_filename, UPLOAD_DIR)
+    try:
+        mtime = os.path.getmtime(filepath)
+    except OSError as exc:
+        raise PivotError("Uploaded file not found on disk") from exc
+
+    deleted_count = _soft_deleted_count(db, dataset_id, sheet_name)
+    stamp = (mtime, deleted_count)
+    cached = metadata_cache.get_drilldown_df(dataset_id, sheet_name)
+    if cached is not None and cached[0] == stamp:
+        return cached[1].copy()
+
     try:
         df = load_sheet_df(filepath, sheet_name)
     except FileNotFoundError as exc:
@@ -346,50 +384,18 @@ def _load_dataset_sheet(db: Session, dataset_id: int, sheet_name: str) -> pd.Dat
 
     df.columns = df.columns.astype(str)
 
-    # Phase 8 — soft delete. Drop every row whose signature is in
-    # the soft-deleted table for this (dataset, sheet). We do this
-    # AFTER loading the file but BEFORE any pivot / drilldown math.
-    # The signatures are stable across re-uploads of the same file,
-    # so the deleted rows stay deleted.
-    try:
-        from app.models.soft_deleted_record import SoftDeletedRecord
-        from app.services.row_keys import row_source_key
+    # Phase 8 — soft delete. Drop every row whose signature is in the
+    # soft-deleted table for this (dataset, sheet). Writer and reader
+    # both use `frame_row_keys`, so the keys always agree.
+    if deleted_count:
+        skip = _soft_deleted_keys(db, dataset_id, sheet_name)
+        if skip:
+            keys = frame_row_keys(df)
+            mask = [k not in skip for k in keys]
+            df = df.loc[mask].reset_index(drop=True)
 
-        soft_rows = (
-            db.query(SoftDeletedRecord.row_payload)
-            .filter(SoftDeletedRecord.dataset_id == dataset_id)
-            .filter(SoftDeletedRecord.sheet_name == sheet_name)
-            .all()
-        )
-        if soft_rows:
-            # Build a set of signatures to skip. The same
-            # `row_source_key` helper is used in the soft-delete
-            # service when computing the stored key, so the
-            # normalises JSON null / pandas NaN / empty string to
-            # the same canonical form — the two paths always agree.
-            import json as _json
-            skip = set()
-            for r in soft_rows:
-                if not r[0]:
-                    continue
-                try:
-                    payload = _json.loads(r[0])
-                except Exception:
-                    continue
-                skip.add(row_source_key(payload))
-            if skip:
-                # Build a per-row signature for the source DataFrame
-                # and filter out the deleted ones.
-                keep_mask = []
-                for _idx, row in df.iterrows():
-                    keep_mask.append(row_source_key({k: row[k] for k in df.columns}) not in skip)
-                df = df.loc[keep_mask].reset_index(drop=True)
-    except Exception:
-        # If anything goes wrong with the soft-delete filter, keep
-        # going — we'd rather show slightly stale data than break.
-        pass
-
-    return df
+    metadata_cache.set_drilldown_df(dataset_id, sheet_name, (stamp, df))
+    return df.copy()
 
 
 def _normalise_values(values: List[Any], df: pd.DataFrame) -> List[PivotValue]:
@@ -397,9 +403,10 @@ def _normalise_values(values: List[Any], df: pd.DataFrame) -> List[PivotValue]:
         return [PivotValue(field=str(df.columns[0]), aggregation="count", label="count")]
 
     result: List[PivotValue] = []
+    seen_labels: set = set()
     for item in values:
         if isinstance(item, PivotValue):
-            spec = item
+            spec = item.model_copy()
         elif isinstance(item, str):
             spec = PivotValue(field=item, aggregation="sum")
         elif isinstance(item, dict):
@@ -412,6 +419,12 @@ def _normalise_values(values: List[Any], df: pd.DataFrame) -> List[PivotValue]:
             raise PivotError(f"Unsupported aggregation: {spec.aggregation}")
         if spec.field not in df.columns:
             raise PivotError(f"Value field not found: {spec.field}")
+        # The same field + aggregation twice would produce two columns
+        # with the same name — keep the first one only.
+        label = _value_label(spec)
+        if label in seen_labels:
+            continue
+        seen_labels.add(label)
         result.append(spec)
 
     return result
@@ -441,20 +454,35 @@ def _prepare_group_fields(
     return group_rows, group_columns, grouped_labels
 
 
+def _is_blank_filter_value(value: Any) -> bool:
+    return value is None or value == NULL_PLACEHOLDER
+
+
+def _isin_with_nulls(series: pd.Series, values: List[Any]) -> pd.Series:
+    """`Series.isin` that also treats None / "(blank)" as "cell is empty".
+
+    Plain `isin([None])` never matches pandas NaN / NaT, so a filter on
+    the "(blank)" value used to match nothing."""
+    wants_blank = any(_is_blank_filter_value(v) for v in values)
+    concrete = [v for v in values if not _is_blank_filter_value(v)]
+    mask = series.isin(_coerce_filter_values(series, concrete)) if concrete else pd.Series(False, index=series.index)
+    if wants_blank:
+        mask = mask | series.isna()
+    return mask
+
+
 def _apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
     filtered = df
-    for field, expected in filters.items():
+    for field, expected in (filters or {}).items():
         if field not in filtered.columns:
             raise PivotError(f"Filter field not found: {field}")
 
         if isinstance(expected, dict):
             filtered = _apply_structured_filter(filtered, field, expected)
         elif isinstance(expected, list):
-            filtered = filtered[filtered[field].isin(_coerce_filter_values(filtered[field], expected))]
-        elif expected is None:
-            filtered = filtered[filtered[field].isna()]
+            filtered = filtered[_isin_with_nulls(filtered[field], expected)]
         else:
-            filtered = filtered[filtered[field] == _coerce_filter_values(filtered[field], [expected])[0]]
+            filtered = filtered[_isin_with_nulls(filtered[field], [expected])]
 
     return filtered
 
@@ -462,7 +490,13 @@ def _apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
 def _coerce_filter_values(series: pd.Series, values: List[Any]) -> List[Any]:
     """Restore JSON date values to timestamps before exact-match filtering."""
     if pd.api.types.is_datetime64_any_dtype(series):
-        return [pd.to_datetime(value) if value is not None else value for value in values]
+        out = []
+        for value in values:
+            try:
+                out.append(pd.to_datetime(value) if value is not None else value)
+            except (ValueError, TypeError):
+                out.append(value)
+        return out
     return values
 
 
@@ -471,15 +505,18 @@ def _apply_structured_filter(
 ) -> pd.DataFrame:
     series = df[field]
     if "in" in filter_def:
-        return df[series.isin(filter_def["in"])]
+        return df[_isin_with_nulls(series, list(filter_def["in"] or []))]
     if "notIn" in filter_def:
-        return df[~series.isin(filter_def["notIn"])]
+        return df[~_isin_with_nulls(series, list(filter_def["notIn"] or []))]
     if "equals" in filter_def:
-        return df[series == filter_def["equals"]]
+        return df[_isin_with_nulls(series, [filter_def["equals"]])]
     if "contains" in filter_def:
-        return df[series.astype(str).str.contains(str(filter_def["contains"]), case=False, na=False)]
+        return df[series.astype(str).str.contains(str(filter_def["contains"]), case=False, na=False, regex=False)]
 
-    comparable = pd.to_datetime(series, errors="ignore")
+    try:
+        comparable = pd.to_datetime(series) if series.dtype == object else series
+    except (ValueError, TypeError):
+        comparable = series
     if "from" in filter_def:
         comparable_from = _coerce_comparison_value(comparable, filter_def["from"])
         df = df[comparable >= comparable_from]
@@ -491,6 +528,102 @@ def _apply_structured_filter(
     return df
 
 
+# ── Core aggregation ─────────────────────────────────────────────────────
+
+def _fill_group_nulls(df: pd.DataFrame, fields: List[str]) -> pd.DataFrame:
+    """Replace nulls in group fields with "(blank)" (Excel behaviour) so
+    blank values form their own group instead of being dropped."""
+    out = df
+    copied = False
+    for col in fields:
+        if out[col].isna().any():
+            if not copied:
+                out = out.copy()
+                copied = True
+            out[col] = out[col].astype(object).where(out[col].notna(), NULL_PLACEHOLDER)
+    return out
+
+
+def _pivot_frame(
+    df: pd.DataFrame,
+    index: List[str],
+    columns: List[str],
+    value_specs: List[PivotValue],
+    grouped_labels: Dict[str, str],
+) -> pd.DataFrame:
+    """
+    Aggregate `df` by `index` (rows) × `columns` (column groups) for every
+    value spec and return a flat frame:
+
+      - one column per index field, named with its display name
+      - one column per value spec, named with its label — or, when
+        column groups are present, `"<label> | <col value> | ..."`
+
+    `count` / `sum` cells for missing combinations are 0 (Excel shows
+    blank but 0 is what the previous engine returned); `average` / `min`
+    / `max` cells stay null rather than pretending to be 0.
+
+    An empty `index` produces a single row (the overall aggregate).
+    """
+    work = df
+    idx = list(index)
+    synthetic = not idx
+    if synthetic:
+        work = work.assign(__all__=0)
+        idx = ["__all__"]
+    work = _fill_group_nulls(work, idx + list(columns))
+
+    named = {
+        f"__v{i}": (spec.field, AGGREGATIONS[spec.aggregation])
+        for i, spec in enumerate(value_specs)
+    }
+    try:
+        grouped = work.groupby(idx + list(columns), sort=True, dropna=False, observed=True).agg(**named)
+    except MemoryError as exc:
+        raise PivotError(
+            "Pivot computation ran out of memory. Please reduce dataset size, "
+            "select fewer grouping fields, or apply filters."
+        ) from exc
+    except TypeError as exc:
+        raise PivotError(f"Could not aggregate values: {exc}") from exc
+
+    labels = {f"__v{i}": _value_label(spec) for i, spec in enumerate(value_specs)}
+    additive = {f"__v{i}" for i, spec in enumerate(value_specs) if spec.aggregation in {"count", "sum"}}
+
+    if columns:
+        wide = grouped.unstack(list(columns))
+        flat_names = []
+        fill_zero = []
+        for col in wide.columns:
+            vname, *col_values = col if isinstance(col, tuple) else (col,)
+            name = " | ".join([labels[vname]] + [str(v) for v in col_values])
+            flat_names.append(name)
+            if vname in additive:
+                fill_zero.append(name)
+        wide.columns = flat_names
+        if fill_zero:
+            wide[fill_zero] = wide[fill_zero].fillna(0)
+        out = wide
+    else:
+        out = grouped.rename(columns=labels)
+
+    out = out.reset_index()
+    if synthetic:
+        out = out.drop(columns=["__all__"])
+    return _rename_group_columns(out, grouped_labels)
+
+
+def _sort_key(series: pd.Series) -> pd.Series:
+    """Sort key that tolerates mixed types and puts "(blank)" last."""
+    def key(v):
+        if v is None or v == NULL_PLACEHOLDER or (isinstance(v, float) and pd.isna(v)):
+            return (2, "")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return (0, v)
+        return (1, str(v))
+    return series.map(key)
+
+
 def _compute_pivot_rows(
     df: pd.DataFrame,
     group_rows: List[str],
@@ -499,381 +632,208 @@ def _compute_pivot_rows(
     value_specs: List[PivotValue],
     layout: str,
     sorting: Optional[Dict[str, str]] = None,
+    show_subtotals: bool = False,
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     if not group_rows and not group_columns:
         row = {
             _value_label(spec): _json_safe(_aggregate_series(df[spec.field], spec.aggregation))
             for spec in value_specs
         }
+        row["__rowFields"] = {}
         return [row], _visible_columns([], value_specs, [])
 
-    value_fields = list(dict.fromkeys(spec.field for spec in value_specs))
-    aggfunc: Dict[str, Any] = {}
-    for spec in value_specs:
-        func = AGGREGATIONS[spec.aggregation]
-        existing = aggfunc.get(spec.field)
-        if existing is None:
-            aggfunc[spec.field] = func
-        elif isinstance(existing, list):
-            existing.append(func)
-        else:
-            aggfunc[spec.field] = [existing, func]
-    index = group_rows if group_rows else None
-    columns = group_columns if group_columns else None
-
     # Estimate pivot result size
-    if group_rows:
-        unique_rows = df[group_rows].drop_duplicates().shape[0]
-    else:
-        unique_rows = 1
-
-    if group_columns:
-        unique_cols = df[group_columns].drop_duplicates().shape[0]
-    else:
-        unique_cols = 1
-
-    estimated_cells = unique_rows * unique_cols * len(value_fields)
-
+    unique_rows = df[group_rows].drop_duplicates().shape[0] if group_rows else 1
+    unique_cols = df[group_columns].drop_duplicates().shape[0] if group_columns else 1
+    estimated_cells = unique_rows * unique_cols * len(value_specs)
     if estimated_cells > 1000000:  # 1 million cells limit
         raise PivotError(
             f"Pivot would generate approximately {estimated_cells:,} cells, which exceeds the limit of 1,000,000. "
             f"Please select fewer grouping fields or apply filters to reduce the dataset size. "
-            f"(Current: {unique_rows} unique row groups × {unique_cols} unique column groups × {len(value_fields)} value fields)"
+            f"(Current: {unique_rows} unique row groups × {unique_cols} unique column groups × {len(value_specs)} value fields)"
         )
 
-    # Critical fix: replace null values in the group fields with a string
-    # placeholder BEFORE calling pd.pivot_table.
-    #
-    # pandas' pivot_table with multiple row fields and `dropna=False`
-    # builds the **cartesian product** of all distinct values in each row
-    # level (because each level is treated as an independent category
-    # index). For example, with Issue_Category (64 distinct incl. NaN) ×
-    # Unit (30) × Affected_CI (353) the pivot produced 677,760 rows
-    # even though only 588 unique combinations exist in the source data.
-    # The pre-pivot size estimate `df[group_rows].drop_duplicates()`
-    # returns 588, so the cap isn't triggered and the user is left with
-    # a 670k-row pivot that overflows the 10,000-row result limit.
-    #
-    # Substituting NaN with a literal string and using `dropna=True`
-    # gives us Excel-like behaviour: null values appear as "(blank)" in
-    # the result, and the row count is exactly the number of distinct
-    # combinations present in the data.
-    pivot_input = df.copy()
-    for col in (group_rows or []) + (group_columns or []):
-        if pivot_input[col].isna().any():
-            pivot_input[col] = pivot_input[col].fillna(NULL_PLACEHOLDER)
+    row_cols = [_display_group_name(f, grouped_labels) for f in group_rows]
+    leaf = _pivot_frame(df, group_rows, group_columns, value_specs, grouped_labels)
+    value_columns = [c for c in leaf.columns if c not in row_cols]
 
-    try:
-        pivot_df = pd.pivot_table(
-            pivot_input,
-            values=value_fields,
-            index=index,
-            columns=columns,
-            aggfunc=aggfunc,
-            fill_value=0,
-            dropna=True,
-            observed=True,
+    # True row total across column groups (only meaningful with exactly
+    # one value spec). It is re-aggregated from the source rows, so an
+    # average row total is the average of the records, not the sum of
+    # per-column averages.
+    has_row_total = bool(group_columns) and len(value_specs) == 1 and len(value_columns) > 1
+    if has_row_total:
+        leaf = _attach_row_total(leaf, df, group_rows, row_cols, value_specs, grouped_labels)
+
+    # Sort hierarchically: every row field takes part (in field order) so
+    # groups stay contiguous; the user's direction applies where given.
+    if row_cols:
+        directions = {
+            _display_group_name(_group_field_name(raw, grouped_labels), grouped_labels): (d or "asc").lower()
+            for raw, d in (sorting or {}).items()
+        }
+        if directions:
+            leaf = leaf.sort_values(
+                by=row_cols,
+                ascending=[directions.get(c, "asc") not in {"desc", "descending"} for c in row_cols],
+                key=_sort_key,
+                kind="mergesort",
+            ).reset_index(drop=True)
+
+    rows = _df_to_records(leaf)
+    for r in rows:
+        r["__rowFields"] = {c: r.get(c) for c in row_cols}
+
+    if show_subtotals and len(group_rows) >= 2:
+        rows = _with_subtotal_rows(
+            rows, df, group_rows, group_columns, row_cols, value_specs, grouped_labels, has_row_total,
         )
-    except MemoryError as exc:
-        raise PivotError(
-            f"Pivot computation ran out of memory. "
-            f"Please reduce dataset size, select fewer grouping fields, or apply filters. "
-            f"Original error: {exc}"
-        ) from exc
-
-    if isinstance(pivot_df, pd.Series):
-        pivot_df = pivot_df.to_frame()
-    if group_rows:
-        pivot_df = pivot_df.reset_index()
-    else:
-        pivot_df = pivot_df.reset_index(drop=True)
-
-    pivot_df.columns = [_flatten_column(col, value_specs, grouped_labels) for col in pivot_df.columns]
-    pivot_df = _rename_group_columns(pivot_df, grouped_labels)
-
-    # Apply per-row sorting on the resulting pivot (pivot_table re-sorts the index)
-    if sorting and group_rows:
-        sort_keys: List[str] = []
-        ascending: List[bool] = []
-        for raw_field, direction in sorting.items():
-            actual_col = _display_group_name(_group_field_name(raw_field, grouped_labels), grouped_labels)
-            if actual_col not in pivot_df.columns:
-                continue
-            direction_norm = (direction or "asc").lower()
-            ascending.append(direction_norm not in {"desc", "descending"})
-            sort_keys.append(actual_col)
-        if sort_keys:
-            pivot_df = pivot_df.sort_values(by=sort_keys, ascending=ascending, kind="mergesort")
-            pivot_df = pivot_df.reset_index(drop=True)
-
-    rows = _df_to_records(pivot_df)
 
     # Limit number of rows in result. Capture the original count BEFORE
     # truncation so the warning message is accurate.
     original_row_count = len(rows)
     if original_row_count > MAX_PIVOT_RESULT_ROWS:
         rows = rows[:MAX_PIVOT_RESULT_ROWS]
-        warning_row = {
+        rows.insert(0, {
             "_warning": (
                 f"Result truncated to first {MAX_PIVOT_RESULT_ROWS:,} of "
                 f"{original_row_count:,} rows due to size limits. "
                 f"Apply filters or reduce grouping fields to see all rows."
             )
-        }
-        rows.insert(0, warning_row)
+        })
 
-    if layout == "compact" and len(group_rows) > 1:
-        row_labels = [_display_group_name(field, grouped_labels) for field in group_rows]
+    compact = layout == "compact" and len(group_rows) > 1
+    _annotate_hierarchy(rows, row_cols)
+    if compact:
         for row in rows:
-            if "_warning" not in row:  # Skip the warning row
-                row["Rows"] = " / ".join(str(row.get(label, "")) for label in row_labels)
-                for label in row_labels:
-                    row.pop(label, None)
+            if "_warning" in row:
+                continue
+            if row.get("__isSubtotal"):
+                prefix = [str(row["__rowFields"].get(c)) for c in row_cols[:-1]]
+                row["Rows"] = " / ".join(prefix) + " Total"
+            else:
+                row["Rows"] = " / ".join(str(row.get(label, "")) for label in row_cols)
+            for label in row_cols:
+                row.pop(label, None)
         first_cols = ["Rows"]
     else:
-        first_cols = [_display_group_name(field, grouped_labels) for field in group_rows]
+        first_cols = row_cols
 
-    # ── Phase 7: add hierarchy markers (`__level`, `__parentKey`) ────
-    # The frontend uses these to drive expand/collapse and indent the
-    # row labels exactly like Excel's Tabular Form.  This runs AFTER
-    # the compact-mode transformation so the "Rows" merged column is
-    # available for the parent-key extraction.
-    _annotate_hierarchy(rows, group_rows, layout)
-
-    value_columns = [c for c in pivot_df.columns if c not in [_display_group_name(f, grouped_labels) for f in group_rows]]
     return rows, _visible_columns(first_cols, value_specs, value_columns)
 
 
-def _annotate_hierarchy(
-    rows: List[Dict[str, Any]],
+def _attach_row_total(
+    frame: pd.DataFrame,
+    df: pd.DataFrame,
     group_rows: List[str],
-    layout: str,
-) -> None:
-    """Stamp every regular (non-warning) row with `__level` and
-    `__parentKey` so the frontend can drive expand/collapse and indent
-    row labels without recomputing anything.
+    row_cols: List[str],
+    value_specs: List[PivotValue],
+    grouped_labels: Dict[str, str],
+) -> pd.DataFrame:
+    totals = _pivot_frame(df, group_rows, [], value_specs, grouped_labels)
+    label = _value_label(value_specs[0])
+    totals = totals.rename(columns={label: "row_total"})
+    if not row_cols:
+        frame = frame.copy()
+        frame["row_total"] = totals["row_total"].iloc[0] if len(totals) else None
+        return frame
+    return frame.merge(totals[row_cols + ["row_total"]], on=row_cols, how="left")
 
-    In compact mode the row fields are merged into a single "Rows"
-    column; the level is set from the number of " / " separators in
-    that merged value.
-    """
-    if not rows or not group_rows:
+
+def _annotate_hierarchy(rows: List[Dict[str, Any]], row_cols: List[str]) -> None:
+    """Stamp every row with `__level` / `__parentKey` (and `__groupKey` on
+    subtotal rows) from its `__rowFields`, identically in both layouts.
+
+    Regular rows sit at the deepest level; their parent key is the
+    "||"-joined values of every row field above it. A subtotal row sits
+    one level up and its `__groupKey` equals the `__parentKey` of the
+    rows it summarises, which is what the grid's expand/collapse uses."""
+    if not row_cols:
         return
-
-    if layout == "compact":
-        for r in rows:
-            if "_warning" in r:
-                continue
-            merged = r.get("Rows")
-            if merged is None:
-                r["__level"] = 0
-                r["__parentKey"] = ""
-                continue
-            parts = [p for p in str(merged).split(" / ") if p != ""]
-            # Subtract 1 so a single row field produces level 0,
-            # two row fields → level 0/1, three → 0/1/2, etc.
-            r["__level"] = max(0, len(parts) - 1)
-            # The parent key in compact mode is the joined values of
-            # all levels above this row.  Trim the last element to get
-            # the path that this row belongs to.
-            r["__parentKey"] = " / ".join(parts[:-1]) if len(parts) > 1 else ""
-        return
-
-    # Tabular mode — the row fields are separate columns; the level
-    # equals the index of the last non-blank row field, and the parent
-    # key is the joined value of the row fields above that level.
-    n = len(group_rows)
+    n = len(row_cols)
     for r in rows:
-        if "_warning" in r:
+        if "_warning" in r or "__rowFields" not in r:
             continue
-        last_filled = -1
-        for i, field in enumerate(group_rows):
-            v = r.get(field)
-            if v is not None and v != "" and v != NULL_PLACEHOLDER:
-                last_filled = i
-        r["__level"] = max(0, last_filled)
-        if last_filled <= 0:
-            r["__parentKey"] = ""
+        vals = [str(r["__rowFields"].get(c, "")) for c in row_cols]
+        if r.get("__isSubtotal"):
+            r["__level"] = n - 2
+            r["__parentKey"] = "||".join(vals[: n - 2])
+            r["__groupKey"] = "||".join(vals[: n - 1])
         else:
-            r["__parentKey"] = "||".join(
-                str(r.get(group_rows[i], "")) for i in range(last_filled)
-            )
+            r["__level"] = n - 1
+            r["__parentKey"] = "||".join(vals[: n - 1])
 
 
 # ── Phase 7 — Subtotals ──────────────────────────────────────────────────
 
-def _insert_subtotal_rows(
+def _with_subtotal_rows(
     rows: List[Dict[str, Any]],
+    df: pd.DataFrame,
     group_rows: List[str],
+    group_columns: List[str],
+    row_cols: List[str],
     value_specs: List[PivotValue],
-    pivot_columns: List[str],
-) -> None:
-    """Insert a real subtotal row after every "group change" at the
-    second-to-last row-field level.  This matches Excel's behaviour:
-    with three row fields the subtotal is placed after every change in
-    the second level, with two row fields after every change in the
-    first level, and a single row field never produces a subtotal (the
-    grand total already covers it).
+    grouped_labels: Dict[str, str],
+    has_row_total: bool,
+) -> List[Dict[str, Any]]:
+    """Insert a subtotal row after every group at the second-to-last
+    row-field level (Excel behaviour).
 
-    Subtotal rows are annotated with `__isSubtotal: true` and their
-    value columns are re-aggregated from the underlying rows in the
-    group (we compute a simple sum which is correct for the
-    `sum`/`count` aggregations; for `average`/`min`/`max` we use the
-    sub-aggregation of the rows in the group)."""
-    if len(group_rows) < 2:
-        return
+    Subtotal values are aggregated from the source records of the group,
+    so every aggregation (including average / min / max) and every column
+    group is correct — they are not derived from the leaf values."""
+    prefix_fields = group_rows[:-1]
+    prefix_cols = row_cols[:-1]
+    sub = _pivot_frame(df, prefix_fields, group_columns, value_specs, grouped_labels)
+    if has_row_total:
+        sub = _attach_row_total(sub, df, prefix_fields, prefix_cols, value_specs, grouped_labels)
+    by_prefix = {
+        tuple(rec.get(c) for c in prefix_cols): rec
+        for rec in _df_to_records(sub)
+    }
 
-    # Subtotal level = the second-to-last row field.  e.g. with three
-    # row fields (A, B, C) the subtotal appears after each group of
-    # C rows that share the same (A, B) prefix.
-    subtotal_level_field = group_rows[-2]
+    def subtotal_for(prefix: Tuple[Any, ...]) -> Dict[str, Any]:
+        rec = dict(by_prefix.get(prefix, {}))
+        for c in row_cols:
+            rec[c] = rec.get(c, "") if c in prefix_cols else ""
+        rec["__rowFields"] = {c: v for c, v in zip(prefix_cols, prefix)}
+        rec["__isSubtotal"] = True
+        return rec
 
-    # Walk rows in order, tracking the current value of the
-    # subtotal-level field.  When it changes, inject a subtotal row
-    # whose level field has the previous value.
-    #
-    # Implementation: we accumulate "the rows in the current group"
-    # as Python dicts; when the level-field changes we compute the
-    # subtotal and insert it, then start a new group.
-    #
-    # We also need to compute the aggregated value for each numeric
-    # value column from the rows in the current group.  We sum
-    # numeric values which gives the correct result for sum, count,
-    # min, and max; for average we average them, which matches what
-    # the user would expect (the engine already returned a flat sum
-    # of averages at the leaf level so summing gives the wrong
-    # answer — we re-derive average from the leaf rows instead).
-    def _reaggregate(group_rows_list: List[Dict[str, Any]]) -> Dict[str, Any]:
-        out: Dict[str, Any] = {}
-        for spec in value_specs:
-            label = _value_label(spec)
-            nums: List[float] = []
-            for gr in group_rows_list:
-                v = gr.get(label)
-                if v is None:
-                    continue
-                try:
-                    nums.append(float(v))
-                except (TypeError, ValueError):
-                    pass
-            if not nums:
-                out[label] = 0
-                continue
-            if spec.aggregation == "average":
-                out[label] = sum(nums) / len(nums)
-            elif spec.aggregation == "min":
-                out[label] = min(nums)
-            elif spec.aggregation == "max":
-                out[label] = max(nums)
-            else:  # sum, count
-                out[label] = sum(nums)
-        return out
-
-    new_rows: List[Dict[str, Any]] = []
-    current_group: List[Dict[str, Any]] = []
-    current_level_value: Any = None
-    current_level_parent: Any = None
-
-    def _flush_subtotal():
-        if not current_group:
-            return
-        sub = _reaggregate(current_group)
-        # Set the level field to the previous value, blank the deeper
-        # fields, mark as subtotal.
-        subtotal_field_index = len(group_rows) - 2
-        for i, field in enumerate(group_rows):
-            if i < subtotal_field_index:
-                sub[field] = current_group[0].get(field)
-            elif i == subtotal_field_index:
-                sub[field] = current_group[0].get(field)
-            else:
-                sub[field] = ""  # blank the deepest level on subtotal rows
-        sub["__isSubtotal"] = True
-        # The subtotal lives at the level of the field it aggregates
-        # (the second-to-last level), not the deepest level.
-        sub["__level"] = subtotal_field_index
-        sub["__parentKey"] = "||".join(
-            str(current_group[0].get(group_rows[i], "")) for i in range(subtotal_field_index)
-        )
-        new_rows.append(sub)
-
+    out: List[Dict[str, Any]] = []
+    current: Optional[Tuple[Any, ...]] = None
     for r in rows:
-        if "_warning" in r:
-            new_rows.append(r)
-            continue
-        # Skip existing grand-total / column-total markers
-        if r.get("__isGrandTotal") or r.get("__isColumnTotal") or r.get("__isSubtotal"):
-            new_rows.append(r)
-            continue
-        level_val = r.get(subtotal_level_field)
-        parent_key = "||".join(
-            str(r.get(group_rows[i], "")) for i in range(len(group_rows) - 1)
-        )
-        if current_level_parent is None:
-            current_level_parent = parent_key
-            current_level_value = level_val
-            current_group.append(r)
-            new_rows.append(r)
-            continue
-        if parent_key != current_level_parent:
-            # Group changed — emit a subtotal for the previous group.
-            _flush_subtotal()
-            current_group = [r]
-            current_level_parent = parent_key
-            current_level_value = level_val
-            new_rows.append(r)
-        else:
-            current_group.append(r)
-            new_rows.append(r)
-
-    # Flush the trailing group.
-    _flush_subtotal()
-
-    rows.clear()
-    rows.extend(new_rows)
+        prefix = tuple(r.get(c) for c in prefix_cols)
+        if current is not None and prefix != current:
+            out.append(subtotal_for(current))
+        current = prefix
+        out.append(r)
+    if current is not None:
+        out.append(subtotal_for(current))
+    return out
 
 
 # ── Phase 7 — Repeat item labels (Tabular Form) ─────────────────────────
 
 def _apply_repeat_item_labels(
     rows: List[Dict[str, Any]],
-    group_rows: List[str],
+    row_cols: List[str],
 ) -> None:
     """Fill blank grouped cells with the value from the row above,
-    exactly like Excel's Tabular Form.
-
-    Operates in tabular mode (one row field per column).  In compact
-    mode the row fields are merged into a single "Rows" column so
-    the option is a no-op there.
-
-    Subtotal rows are intentionally NOT filled in on the deepest
-    level — the leaf value is what gets repeated, and a subtotal
-    has no leaf value.  This matches Excel, where the deepest
-    column on a subtotal row is blank.
-    """
-    if not group_rows:
+    exactly like Excel's Tabular Form. The deepest field of a subtotal
+    row stays blank (a subtotal has no leaf value)."""
+    if not row_cols:
         return
-
-    if "Rows" in rows[0] if rows else False:
-        # Compact mode — nothing to do, the merged column already
-        # contains every level's value.
-        return
-
-    n = len(group_rows)
+    n = len(row_cols)
     last_values: List[Any] = [None] * n
     for r in rows:
-        if "_warning" in r:
-            continue
-        if r.get("__isGrandTotal") or r.get("__isColumnTotal"):
+        if "_warning" in r or r.get("__isGrandTotal") or r.get("__isColumnTotal"):
             continue
         is_subtotal = bool(r.get("__isSubtotal"))
-        for i, field in enumerate(group_rows):
+        for i, field in enumerate(row_cols):
             v = r.get(field)
-            if v is None or v == "" or v == NULL_PLACEHOLDER:
+            if v is None or v == "":
                 if is_subtotal and i == n - 1:
-                    # Subtotal row: leave the deepest field blank so
-                    # the user sees an empty cell where the leaf
-                    # value would normally be.
                     continue
                 r[field] = last_values[i]
             else:
@@ -886,89 +846,32 @@ def _insert_column_total_row(
     rows: List[Dict[str, Any]],
     filtered_df: pd.DataFrame,
     group_rows: List[str],
+    group_columns: List[str],
+    grouped_labels: Dict[str, str],
     value_specs: List[PivotValue],
     pivot_columns: List[str],
+    layout: str,
 ) -> None:
-    """Build a per-column-total row by re-aggregating `filtered_df`
-    along only the deeper row fields.  The row is marked
-    `__isColumnTotal` so the frontend can pin it beneath the grand
-    total in the same `pinnedBottomRowData` slot.
-
-    Implementation note: we do NOT re-pivot here — we iterate the
-    leaves of the pivot in `rows` (regular rows + subtotal rows
-    count as leaves for the purposes of this aggregation; we only
-    exclude `_warning`, `__isGrandTotal`, and `__isColumnTotal` rows)
-    and sum / re-aggregate their value columns.  This keeps the
-    column total consistent with the subtotal logic for every
-    supported aggregation.
-    """
+    """Append a per-column-total row (aggregated from every filtered
+    record, per column group). Marked `__isColumnTotal` so the grid pins
+    it beneath the grand total."""
     if not value_specs:
         return
-
-    new_row: Dict[str, Any] = {"__isColumnTotal": True}
-    # In tabular mode set the first row field to the label; in compact
-    # mode set the merged "Rows" column.
-    label_text = "Column Total"
-    if "Rows" in (rows[0] if rows else {}):
-        new_row["Rows"] = label_text
-    elif group_rows:
-        for i, field in enumerate(group_rows):
-            new_row[field] = label_text if i == 0 else ""
-    else:
-        # No row fields — attach the label to the first visible column.
-        first = next((c for c in pivot_columns if not c.startswith("__")), None)
-        if first:
-            new_row[first] = label_text
-
-    # Re-aggregate the value columns from the leaves of the existing
-    # rows.  This gives the correct result for every aggregation
-    # because each leaf row already contains a value per
-    # (group, value) combination; we EXCLUDE subtotals so the
-    # column total is a true "sum of leaves" and not a sum of
-    # subtotals-of-leaves (which would double-count).
-    leaf_rows = [
-        r for r in rows
-        if "_warning" not in r
-        and not r.get("__isGrandTotal")
-        and not r.get("__isColumnTotal")
-        and not r.get("__isSubtotal")
-    ]
-
-    def _reagg(spec: PivotValue) -> Any:
-        label = _value_label(spec)
-        nums: List[float] = []
-        for r in leaf_rows:
-            v = r.get(label)
-            if v is None:
-                continue
-            try:
-                nums.append(float(v))
-            except (TypeError, ValueError):
-                pass
-        if not nums:
-            return 0
-        if spec.aggregation == "average":
-            return sum(nums) / len(nums)
-        if spec.aggregation == "min":
-            return min(nums)
-        if spec.aggregation == "max":
-            return max(nums)
-        return sum(nums)  # sum, count
-
-    for spec in value_specs:
-        new_row[_value_label(spec)] = _reagg(spec)
-
-    # Add the row_total entry if the engine normally produces one
-    # (only when there is exactly one value spec and the value column
-    # list contains a row_total).
-    if (len(value_specs) == 1
-            and pivot_columns
-            and "row_total" in pivot_columns):
-        new_row["row_total"] = sum(
-            (v for v in (new_row.get(_value_label(s)) for s in value_specs) if isinstance(v, (int, float))),
-            0,
+    totals = _pivot_frame(filtered_df, [], group_columns, value_specs, grouped_labels)
+    new_row: Dict[str, Any] = _df_to_records(totals)[0] if len(totals) else {}
+    if "row_total" in pivot_columns and len(value_specs) == 1:
+        new_row["row_total"] = _json_safe(
+            _aggregate_series(filtered_df[value_specs[0].field], value_specs[0].aggregation)
         )
+    new_row["__isColumnTotal"] = True
 
+    label_text = "Column Total"
+    if layout == "compact" and len(group_rows) > 1:
+        new_row["Rows"] = label_text
+    else:
+        row_cols = [_display_group_name(f, grouped_labels) for f in group_rows]
+        for i, field in enumerate(row_cols):
+            new_row[field] = label_text if i == 0 else ""
     rows.append(new_row)
 
 
@@ -976,39 +879,23 @@ def _compute_totals(
     df: pd.DataFrame,
     value_specs: List[PivotValue],
     rows: List[Dict[str, Any]],
-    row_columns: List[str],
     totals_opts: TotalsOptions,
 ) -> Dict[str, Any]:
     """
-    Compute grand totals and per-row totals, honouring the user's
-    `show_grand_totals` / `show_row_totals` / `show_column_totals` toggles.
+    Compute grand totals and honour the `show_grand_totals` /
+    `show_row_totals` toggles. Row totals themselves are computed by the
+    engine from the source records (see `_attach_row_total`).
     """
     grand: Dict[str, Any] = {}
     if totals_opts.show_grand_totals:
         for spec in value_specs:
-            label = _value_label(spec)
-            value = _aggregate_series(df[spec.field], spec.aggregation)
-            grand[label] = _json_safe(value)
+            grand[_value_label(spec)] = _json_safe(_aggregate_series(df[spec.field], spec.aggregation))
     else:
         # Still expose the keys so the frontend can detect that totals were disabled
         for spec in value_specs:
             grand[_value_label(spec)] = None
 
-    if totals_opts.show_row_totals:
-        for row in rows:
-            numeric_values = [
-                value
-                for key, value in row.items()
-                if key not in row_columns
-                and key not in {"row_total", "_warning", "Rows",
-                                "__isGrandTotal", "__isSubtotal",
-                                "__isColumnTotal", "__level", "__parentKey"}
-                and isinstance(value, (int, float))
-            ]
-            if len(value_specs) == 1 and len(numeric_values) > 1:
-                row["row_total"] = _json_safe(sum(numeric_values))
-    else:
-        # Make sure no stale row_total sneaks through
+    if not totals_opts.show_row_totals:
         for row in rows:
             row.pop("row_total", None)
 
@@ -1030,28 +917,55 @@ def _selection_series(series: pd.Series) -> pd.Series:
     return series.astype(str)
 
 
+def _selection_mask(series: pd.Series, expected: Any) -> pd.Series:
+    """Boolean mask of the cells in `series` that equal one pivot-row value.
+
+    - None / "(blank)" match empty cells (the pivot shows nulls as
+      "(blank)"), plus any literal "(blank)" text, which the pivot merges
+      into the same group.
+    - Numbers are compared numerically, so a float column value `2024.0`
+      matches the `2024` that JSON round-tripping produces.
+    - Everything else is compared as text (datetimes as ISO-8601).
+    """
+    if expected is None or expected == NULL_PLACEHOLDER:
+        mask = series.isna()
+        if series.dtype == object:
+            mask = mask | (series.astype(str) == NULL_PLACEHOLDER)
+        return mask
+    if (
+        isinstance(expected, (int, float))
+        and not isinstance(expected, bool)
+        and pd.api.types.is_numeric_dtype(series)
+        and not pd.api.types.is_bool_dtype(series)
+    ):
+        return series == expected
+    return _selection_series(series) == str(expected)
+
+
 def _apply_selection(
-    df: pd.DataFrame, selection: Dict[str, Any], grouped_labels: Dict[str, str]
+    df: pd.DataFrame,
+    selection: Dict[str, Any],
+    grouped_labels: Dict[str, str],
+    *,
+    allow_empty: bool = False,
 ) -> pd.DataFrame:
+    """Return the rows of `df` matching every {field: value} in `selection`.
+
+    Safety rules (this feeds Delete Records):
+      - an empty selection matches NOTHING unless `allow_empty` is set
+        (only true when the pivot has no row fields, i.e. its single row
+        legitimately represents every filtered record);
+      - an unknown field raises instead of being skipped, because
+        skipping a criterion silently widens the match.
+    """
+    if not selection:
+        return df if allow_empty else df.iloc[0:0]
     matched = df
-    applied_any = False
     for field, expected in selection.items():
         match_field = _selection_field_name(field, grouped_labels)
         if match_field not in matched.columns:
-            # Unknown field — skip it, but do NOT silently return all
-            # rows if NONE of the selection fields match.  This can
-            # happen when the caller sends a wrapper object (e.g.
-            # {pivotRow: ..., selection: ...}) instead of a flat
-            # {field: value} map.
-            continue
-        matched = matched[_selection_series(matched[match_field]) == str(expected)]
-        applied_any = True
-    # Safety: if no selection field matched any column, the selection
-    # was effectively empty and we must NOT return all rows.  Return
-    # an empty DataFrame instead so the caller sees 0 matches rather
-    # than the entire dataset.
-    if selection and not applied_any:
-        return df.iloc[0:0]
+            raise PivotError(f"Selection field not found: {field}")
+        matched = matched[_selection_mask(matched[match_field], expected)]
     return matched
 
 
@@ -1103,37 +1017,6 @@ def _rename_group_columns(df: pd.DataFrame, grouped_labels: Dict[str, str]) -> p
         if grouped in df.columns
     }
     return df.rename(columns=rename_map)
-
-
-def _flatten_column(
-    column: Any, value_specs: List[PivotValue], grouped_labels: Dict[str, str]
-) -> str:
-    if not isinstance(column, tuple):
-        column_name = str(column)
-        for spec in value_specs:
-            if column_name == spec.field:
-                return _value_label(spec)
-        return _display_group_name(column_name, grouped_labels)
-
-    parts = [str(part) for part in column if str(part) not in ("", "None")]
-    if not parts:
-        return "value"
-
-    if len(parts) >= 2 and parts[0] in {spec.field for spec in value_specs}:
-        maybe_agg = PANDAS_AGGREGATIONS.get(parts[1], parts[1])
-        matching_spec = next(
-            (
-                spec
-                for spec in value_specs
-                if spec.field == parts[0] and spec.aggregation == maybe_agg
-            ),
-            None,
-        )
-        if matching_spec:
-            parts = [_value_label(matching_spec)] + parts[2:]
-    elif parts[0] in {spec.field for spec in value_specs}:
-        parts[0] = _value_label(next(spec for spec in value_specs if spec.field == parts[0]))
-    return " | ".join(parts)
 
 
 def _visible_columns(

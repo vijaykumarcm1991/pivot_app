@@ -141,9 +141,15 @@ def get_sheet_filter_values(
     Values are made JSON-safe while retaining their native scalar type for the
     pivot engine (for example, numeric filters remain numeric).
     """
-    dataset = get_dataset_by_id(db, dataset_id)
-    filepath = build_upload_path(dataset.stored_filename, UPLOAD_DIR)
-    df = load_sheet_df(filepath, sheet_name)
+    # Load through the pivot engine so column names are normalised to
+    # strings (numeric headers like "2024") and soft-deleted records are
+    # excluded — the filter list matches what the pivot can show.
+    from app.services.pivot_service import PivotError, _load_dataset_sheet
+
+    try:
+        df = _load_dataset_sheet(db, dataset_id, sheet_name)
+    except PivotError as exc:
+        raise ValueError(str(exc)) from exc
     if field not in df.columns:
         raise ValueError(f"Field '{field}' not found in sheet '{sheet_name}'")
 

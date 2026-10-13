@@ -83,9 +83,10 @@
   const AGG_LABEL = {
     count:   "Count", sum: "Sum", average: "Average", min: "Min", max: "Max",
   };
+  // Short type hint shown after the field name in the dropdowns.
   const TYPE_ICON = {
-    datetime: "📅", integer: "🔢", float: "📊", decimal: "📊",
-    boolean:  "✅", string:  "📝", text: "📝", date: "📅",
+    datetime: "· date", integer: "· number", float: "· number", decimal: "· number",
+    boolean:  "· yes/no", string:  "", text: "", date: "· date",
   };
 
   // ════════════════════════════════════════════════════════════════════════
@@ -110,8 +111,8 @@
   const filterList        = document.getElementById("filterList");
   const addRowBtn         = document.getElementById("addRowBtn");
   const addColBtn         = document.getElementById("addColBtn");
-  const removeRowBtn      = document.getElementById("removeRowBtn");
-  const removeColBtn      = document.getElementById("removeColBtn");
+  const rowsChips         = document.getElementById("rowsChips");
+  const colsChips         = document.getElementById("colsChips");
   const dateGroupingCard  = document.getElementById("dateGroupingCard");
   const dateGroupingBadge = document.getElementById("dateGroupingBadge");
   const dateGroupingList  = document.getElementById("dateGroupingList");
@@ -219,17 +220,26 @@
   // ════════════════════════════════════════════════════════════════════════
   // INIT
   // ════════════════════════════════════════════════════════════════════════
-  loadDatasets();
+  const datasetsReady = loadDatasets();
   showEmptyState();
   hideAllResults();
+
+  // ?dataset_id=N (e.g. "Open in Pivot Builder" on the preview page)
+  // preselects that dataset once the dropdown is populated.
+  datasetsReady.then(() => {
+    const presetId = new URLSearchParams(window.location.search).get("dataset_id");
+    if (presetId && Array.from(datasetSelect.options).some(o => o.value === presetId)) {
+      datasetSelect.value = presetId;
+      selectDataset(presetId, { resetFields: true });
+    }
+  });
 
   // ════════════════════════════════════════════════════════════════════════
   // DATASETS / SHEETS / COLUMNS  (Phase 3 — unchanged)
   // ════════════════════════════════════════════════════════════════════════
   async function loadDatasets() {
     try {
-      const res  = await fetch("/api/datasets");
-      const data = await res.json();
+      const data = await window.AppUI.fetchJSON("/api/datasets");
       datasetSelect.innerHTML = '<option value="">— select a dataset —</option>';
       data.forEach(ds => {
         const opt = document.createElement("option");
@@ -242,13 +252,39 @@
     }
   }
 
-  datasetSelect.addEventListener("change", async () => {
-    const id = datasetSelect.value;
+  // Clear every field choice that belongs to the previous dataset /
+  // sheet. Without this, rows / values / filters from the old source
+  // were silently sent with the new one ("Group field not found" errors
+  // or stale filters).
+  function resetPivotFields() {
+    appState.rows         = [];
+    appState.columnsGroup = [];
+    appState.values       = [];
+    appState.filters      = {};
+    appState.dateGrouping = {};
+    appState.sorting      = {};
+  }
+
+  datasetSelect.addEventListener("change", () => {
+    selectDataset(datasetSelect.value, { resetFields: true });
+  });
+
+  /**
+   * Load a dataset's sheets (and the chosen sheet's columns).
+   * Resolves once the column lists are populated, so callers such as
+   * draft restore can apply their own state afterwards.
+   *
+   * @param {string} id
+   * @param {{sheet?: string, resetFields?: boolean}} opts
+   */
+  async function selectDataset(id, opts) {
+    const o = opts || {};
     appState.datasetId = id || null;
     appState.datasetName = id
-      ? (datasetSelect.options[datasetSelect.selectedIndex]?.text || "")
+      ? (Array.from(datasetSelect.options).find(op => op.value === String(id))?.text || "")
       : "";
     appState.sheetName = null;
+    if (o.resetFields) resetPivotFields();
 
     sheetSelect.innerHTML = '<option value="">— select —</option>';
     sheetSelect.disabled = !id;
@@ -259,8 +295,7 @@
     if (!id) return;
 
     try {
-      const res = await fetch(`/api/dataset/${id}`);
-      const data = await res.json();
+      const data = await window.AppUI.fetchJSON(`/api/dataset/${encodeURIComponent(id)}`);
       sheetSelect.innerHTML = '<option value="">— select —</option>';
       data.sheets.forEach(s => {
         const opt = document.createElement("option");
@@ -270,24 +305,27 @@
       });
 
       if (data.sheets.length) {
-        sheetSelect.value = data.sheets[0].sheet_name;
-        appState.sheetName = sheetSelect.value;
-        await loadColumnsForSheet(id, appState.sheetName);
+        const wanted = o.sheet && data.sheets.some(s => s.sheet_name === o.sheet)
+          ? o.sheet
+          : data.sheets[0].sheet_name;
+        sheetSelect.value = wanted;
+        appState.sheetName = wanted;
+        await loadColumnsForSheet(id, wanted);
       }
 
-      sourceMeta.textContent = `${data.total_rows.toLocaleString()} rows, ${data.total_columns} columns, ${data.sheets.length} sheet(s)`;
+      sourceMeta.textContent = `${data.total_rows.toLocaleString()} rows · ${data.total_columns} columns · ${data.sheets.length} sheet(s)`;
       sourceInfo.style.display = "";
     } catch (err) {
       showError("Failed to load dataset metadata: " + err.message);
     }
-  });
+  }
 
   sheetSelect.addEventListener("change", async () => {
     const sheet = sheetSelect.value;
     appState.sheetName = sheet || null;
     if (!sheet || !appState.datasetId) return;
-    // The previous pivot result was computed for the OLD sheet — clear
-    // it so we never show stale data (Phase 4 spec §16, "refresh").
+    // The previous pivot result and field choices belong to the OLD sheet.
+    resetPivotFields();
     clearResults();
     clearColumnSelects();
     await loadColumnsForSheet(appState.datasetId, sheet);
@@ -295,10 +333,9 @@
 
   async function loadColumnsForSheet(datasetId, sheetName) {
     try {
-      const res = await fetch(
+      const data = await window.AppUI.fetchJSON(
         `/api/dataset/${datasetId}/sheet/${encodeURIComponent(sheetName)}/columns`
       );
-      const data = await res.json();
       appState.columns = (data || []).map(c => ({
         name:     c.column_name,
         type:     c.data_type,
@@ -344,8 +381,8 @@
     colsSelect.disabled = false;
     addRowBtn.disabled  = false;
     addColBtn.disabled  = false;
-    rowsSelect.innerHTML = "";
-    colsSelect.innerHTML = "";
+    rowsSelect.innerHTML = '<option value="">— field —</option>';
+    colsSelect.innerHTML = '<option value="">— field —</option>';
 
     appState.columns.forEach(col => {
       const rOpt = document.createElement("option");
@@ -372,12 +409,10 @@
     sortList.innerHTML        = "";
     [rowsSelect, colsSelect, valueFieldSelect, filterFieldSelect, dateFieldSelect]
       .forEach(s => (s.disabled = true));
-    [addRowBtn, addColBtn, addValueBtn, addFilterBtn, removeRowBtn, removeColBtn, addDateGroupBtn]
+    [addRowBtn, addColBtn, addValueBtn, addFilterBtn, addDateGroupBtn]
       .forEach(b => (b.disabled = true));
     dateGroupingCard.style.display = "none";
     sortingCard.style.display      = "none";
-    appState.dateGrouping = {};
-    appState.sorting      = {};
     updateBadges();
   }
 
@@ -405,14 +440,14 @@
     dateGroupingBadge.textContent   = Object.keys(appState.dateGrouping).length;
     sortBadge.textContent           = Object.keys(appState.sorting).length;
 
-    removeRowBtn.disabled = !rowsSelect.selectedOptions.length;
-    removeColBtn.disabled = !colsSelect.selectedOptions.length;
 
     const canSubmit = !!appState.datasetId && !!appState.sheetName;
     computeBtn.disabled  = !canSubmit;
     validateBtn.disabled = !canSubmit;
 
     sortingCard.style.display = appState.rows.length ? "" : "none";
+    renderFieldChips(rowsChips, appState.rows, "rows");
+    renderFieldChips(colsChips, appState.columnsGroup, "columnsGroup");
     renderSortList();
     renderDateGroupingList();
     renderValueList();
@@ -420,37 +455,66 @@
   }
 
   addRowBtn.addEventListener("click", () => {
-    Array.from(rowsSelect.selectedOptions).forEach(o => {
-      const field = o.value;
-      if (!appState.rows.includes(field)) appState.rows.push(field);
-    });
+    const field = rowsSelect.value;
+    if (field && !appState.rows.includes(field)) appState.rows.push(field);
+    rowsSelect.value = "";
     updateBadges();
   });
 
   addColBtn.addEventListener("click", () => {
-    Array.from(colsSelect.selectedOptions).forEach(o => {
-      const field = o.value;
-      if (!appState.columnsGroup.includes(field)) appState.columnsGroup.push(field);
-    });
+    const field = colsSelect.value;
+    if (field && !appState.columnsGroup.includes(field)) appState.columnsGroup.push(field);
+    colsSelect.value = "";
     updateBadges();
   });
 
-  removeRowBtn.addEventListener("click", () => {
-    const selected = Array.from(rowsSelect.selectedOptions).map(o => o.value);
-    appState.rows = appState.rows.filter(f => !selected.includes(f));
-    selected.forEach(f => {
-      delete appState.dateGrouping[f];
-      delete appState.sorting[f];
+  /**
+   * Render the fields in Rows / Columns as removable, re-orderable chips.
+   * Order matters for Rows (outer → inner grouping), so each chip has
+   * move-left / move-right buttons.
+   */
+  function renderFieldChips(container, list, key) {
+    if (!container) return;
+    container.innerHTML = "";
+    if (!list.length) {
+      container.innerHTML = '<span class="chip-empty">No fields yet</span>';
+      return;
+    }
+    list.forEach((field, idx) => {
+      const grouping = appState.dateGrouping[field];
+      const chip = document.createElement("span");
+      chip.className = "field-chip";
+      chip.innerHTML = `
+        <span class="chip-text" title="${escHtml(field)}">${escHtml(field)}</span>
+        ${grouping ? `<span class="chip-meta">by ${escHtml(grouping)}</span>` : ""}
+        ${list.length > 1 ? `
+          <button type="button" data-act="left" title="Move earlier" aria-label="Move ${escHtml(field)} earlier" ${idx === 0 ? "disabled" : ""}><i class="bi bi-chevron-left"></i></button>
+          <button type="button" data-act="right" title="Move later" aria-label="Move ${escHtml(field)} later" ${idx === list.length - 1 ? "disabled" : ""}><i class="bi bi-chevron-right"></i></button>` : ""}
+        <button type="button" data-act="remove" title="Remove" aria-label="Remove ${escHtml(field)}"><i class="bi bi-x-lg"></i></button>`;
+      chip.querySelectorAll("button").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const arr = appState[key];
+          const i = arr.indexOf(field);
+          if (i < 0) return;
+          const act = btn.getAttribute("data-act");
+          if (act === "remove") {
+            arr.splice(i, 1);
+            if (!appState.rows.includes(field) && !appState.columnsGroup.includes(field)) {
+              delete appState.dateGrouping[field];
+            }
+            if (key === "rows") delete appState.sorting[field];
+          } else if (act === "left" && i > 0) {
+            [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+          } else if (act === "right" && i < arr.length - 1) {
+            [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
+          }
+          updateBadges();
+          scheduleDraftSave();
+        });
+      });
+      container.appendChild(chip);
     });
-    updateBadges();
-  });
-
-  removeColBtn.addEventListener("click", () => {
-    const selected = Array.from(colsSelect.selectedOptions).map(o => o.value);
-    appState.columnsGroup = appState.columnsGroup.filter(f => !selected.includes(f));
-    selected.forEach(f => delete appState.dateGrouping[f]);
-    updateBadges();
-  });
+  }
 
   addDateGroupBtn.addEventListener("click", () => {
     const field    = dateFieldSelect.value;
@@ -524,6 +588,11 @@
       return;
     }
     const label = `${agg}_${field}`;
+    if (appState.values.some(v => v.label === label)) {
+      showError(`"${label}" is already in Values.`);
+      return;
+    }
+    hideError();
     appState.values.push({ field, aggregation: agg, label });
     updateBadges();
   });
@@ -777,20 +846,15 @@
   // appState at call time, but a plain value is also accepted.
   window.PivotAppState = () => {
     if (!appState.datasetId || !appState.sheetName) return null;
-    const payload = buildPayload();
-    // Phase 7 — also expose the full dataset column list as a separate
-    // field (`availableColumns`) so the display-options dropdowns
-    // (number / date format, freeze, hide) can show every field, not
-    // just the ones currently in the pivot definition.
-    //
-    // IMPORTANT: do NOT mutate `payload.columns` here.  `columns` is
-    // the pivot's column-field list (built by buildPayload from
-    // `appState.columnsGroup`); the email endpoint relies on it being
-    // a small list of pivot column fields, not the full dataset
-    // schema. Overwriting it with every column name breaks the email
-    // preview endpoint (the server treats the extra "columns" as
-    // unknown pivot column fields and returns a 422 error page that
-    // the frontend cannot parse as JSON).
+    // Prefer the configuration behind the rendered pivot (see
+    // computePivot); fall back to the live form before the first run.
+    const base = appState.lastPayload || buildPayload();
+    const payload = JSON.parse(JSON.stringify(base));
+    payload.datasetName = appState.datasetName || "";
+    // Phase 7 — the full dataset column list as a separate field
+    // (`availableColumns`) for the display-options dropdowns.
+    // IMPORTANT: do NOT overwrite `payload.columns` — that is the
+    // pivot's column-field list and the email endpoint relies on it.
     payload.availableColumns = [...(appState.columns || []).map(c => c.name)];
     return payload;
   };
@@ -890,6 +954,12 @@
       if (!res.ok) throw new Error(data.detail || "Pivot request failed");
 
       appState.lastResponse = data;
+      // The configuration that produced the rendered result. Drill-down,
+      // email and Delete Records act on THIS, not on whatever the form
+      // says now — otherwise editing a filter after "Generate" and then
+      // deleting would apply the selection to different data.
+      appState.lastPayload = payload;
+      scheduleDraftSave();
       const context = {
         datasetName: appState.datasetName,
         sheetName:   appState.sheetName,
@@ -1242,6 +1312,10 @@
   function clearResults() {
     hideAllResults();
     showEmptyState();
+    // The rendered pivot is gone, so drill-down / email / delete must
+    // not act on its (now stale) configuration.
+    appState.lastResponse = null;
+    appState.lastPayload  = null;
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -1264,12 +1338,12 @@
 
     if (configHidden) {
       configPanel.classList.add("d-none");
-      resultPanel.classList.remove("col-lg-8");
+      resultPanel.classList.remove("col-lg-8", "col-xxl-9");
       resultPanel.classList.add("col-lg-12");
     } else {
       configPanel.classList.remove("d-none");
       resultPanel.classList.remove("col-lg-12");
-      resultPanel.classList.add("col-lg-8");
+      resultPanel.classList.add("col-lg-8", "col-xxl-9");
     }
 
     // Update the toggle button's icon + label + aria state.
@@ -1587,8 +1661,14 @@
         delResultArea.style.display = "none";
         delResultArea.innerHTML = "";
       }
-      // Cache for the confirm handler.
-      deleteRecordsBtn.dataset.pending = JSON.stringify(selections);
+      // Cache for the confirm handler — the selections AND the exact
+      // configuration of the rendered pivot they came from.
+      pendingDelete = {
+        selections,
+        pivotRequest: JSON.parse(JSON.stringify(appState.lastPayload || buildPayload())),
+      };
+      // Confirm stays disabled until the dry run reports a count > 0.
+      if (confirmDeleteBtn) confirmDeleteBtn.disabled = true;
       if (window.bootstrap && deleteRecordsModal) {
         const m = bootstrap.Modal.getOrCreateInstance(deleteRecordsModal);
         m.show();
@@ -1606,6 +1686,8 @@
   // `dryRun: true` so the server returns the count without deleting
   // anything.  Then the modal shows the count and warns the user if
   // it's a large delete (>500 records).
+  let pendingDelete = null;
+
   async function previewDeleteRecordCount(selections) {
     if (!delResultArea) return;
     delResultArea.style.display = "";
@@ -1619,12 +1701,12 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          pivotRequest: buildPayload(),
+          pivotRequest: pendingDelete ? pendingDelete.pivotRequest : buildPayload(),
           selections: selections,
           dryRun: true,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || "Preview failed.");
       const n = data.matched || 0;
       const LARGE = 500;
@@ -1659,33 +1741,35 @@
         }
       }
     } catch (err) {
+      if (confirmDeleteBtn) {
+        confirmDeleteBtn.disabled = true;
+        confirmDeleteBtn.title = "The affected records could not be counted";
+      }
       delResultArea.innerHTML = `
-        <div class="alert alert-warning mb-0">
+        <div class="alert alert-danger mb-0">
           <i class="bi bi-exclamation-triangle me-1"></i>
-          Could not count affected records: ${escHtml(err.message)}
+          Could not count affected records, so nothing can be deleted: ${escHtml(err.message)}
         </div>`;
     }
   }
 
   if (confirmDeleteBtn) {
     confirmDeleteBtn.addEventListener("click", async () => {
-      const selections = JSON.parse(deleteRecordsBtn.dataset.pending || "[]");
-      if (!selections.length) return;
+      if (!pendingDelete || !pendingDelete.selections.length) return;
+      const { selections, pivotRequest } = pendingDelete;
       confirmDeleteBtn.disabled = true;
       const originalHtml = confirmDeleteBtn.innerHTML;
       confirmDeleteBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Deleting…';
       try {
-        const body = {
-          pivotRequest: buildPayload(),
-          selections:   selections,
-        };
+        const body = { pivotRequest, selections };
         const res = await fetch("/api/pivot/delete-records", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.detail || "Delete failed.");
+        pendingDelete = null;  // one delete per confirmation
         // Show the result inside the modal.
         if (delResultArea) {
           delResultArea.innerHTML = `
@@ -1715,7 +1799,9 @@
           delResultArea.style.display = "";
         }
       } finally {
-        confirmDeleteBtn.disabled = false;
+        // Stays disabled after a successful delete (no double submit);
+        // re-enabled after a failure so the user can retry.
+        confirmDeleteBtn.disabled = !pendingDelete;
         confirmDeleteBtn.innerHTML = originalHtml;
       }
     });
@@ -1755,16 +1841,36 @@
     } catch (_) { /* ignore quota errors */ }
   }
 
-  function applyDraft(draft) {
-    if (!draft) return;
-    appState.datasetId    = draft.datasetId    || null;
-    appState.sheetName    = draft.sheetName    || null;
-    appState.rows         = Array.isArray(draft.rows)        ? draft.rows        : [];
-    appState.columnsGroup = Array.isArray(draft.columns)     ? draft.columns     : [];
-    appState.values       = Array.isArray(draft.values)      ? draft.values      : [];
-    appState.filters      = (draft.filters     && typeof draft.filters     === "object") ? draft.filters     : {};
-    appState.dateGrouping = (draft.dateGrouping && typeof draft.dateGrouping === "object") ? draft.dateGrouping : {};
-    appState.sorting      = (draft.sorting     && typeof draft.sorting     === "object") ? draft.sorting      : {};
+  /**
+   * Restore a saved configuration. The dataset + sheet are loaded first
+   * (which resets the field lists), and only then are the saved rows,
+   * values, filters, grouping and sorting applied — previously the
+   * dataset "change" event fired afterwards and wiped them, and the
+   * saved sheet was replaced by the first sheet.
+   */
+  async function applyDraft(draft) {
+    if (!draft || !draft.datasetId) return;
+    const id = String(draft.datasetId);
+    if (!Array.from(datasetSelect.options).some(o => o.value === id)) {
+      showError("The saved pivot refers to a dataset that no longer exists.");
+      return;
+    }
+    datasetSelect.value = id;
+    await selectDataset(id, { sheet: draft.sheetName, resetFields: true });
+    if (draft.sheetName && appState.sheetName !== draft.sheetName) {
+      showError(`Sheet "${draft.sheetName}" no longer exists — showing "${appState.sheetName}" instead.`);
+    }
+
+    const known = new Set((appState.columns || []).map(c => c.name));
+    const keep  = f => known.has(f);
+    appState.rows         = (Array.isArray(draft.rows) ? draft.rows : []).filter(keep);
+    appState.columnsGroup = (Array.isArray(draft.columns) ? draft.columns : []).filter(keep);
+    appState.values       = (Array.isArray(draft.values) ? draft.values : []).filter(v => v && keep(v.field));
+    const pick = (obj) => Object.fromEntries(
+      Object.entries(obj && typeof obj === "object" ? obj : {}).filter(([k]) => keep(k)));
+    appState.filters      = pick(draft.filters);
+    appState.dateGrouping = pick(draft.dateGrouping);
+    appState.sorting      = pick(draft.sorting);
     appState.totals       = Object.assign({
       showGrandTotals: true, showRowTotals: true,
       showColumnTotals: false, showSubtotals: false, repeatItemLabels: false,
@@ -1773,29 +1879,21 @@
       numberFormat: {}, dateFormat: {}, conditionalFormats: [],
       frozenColumns: [], hiddenColumns: [],
     }, draft.displayOptions || {});
-    appState.layout = draft.layout || "tabular";
-    // Push the values into the visible UI.
+    appState.layout = draft.layout === "compact" ? "compact" : "tabular";
+    if (window.PivotDisplay && window.PivotDisplay.setState) {
+      window.PivotDisplay.setState(appState.displayOptions);
+    }
     restoreUIFromState();
   }
 
   function restoreUIFromState() {
-    // Dataset + sheet dropdowns.
-    if (datasetSelect && appState.datasetId) {
-      datasetSelect.value = appState.datasetId;
-    }
-    // Totals checkboxes
     if (optGrandTotals)    optGrandTotals.checked    = !!appState.totals.showGrandTotals;
     if (optRowTotals)      optRowTotals.checked      = !!appState.totals.showRowTotals;
     if (optColumnTotals)   optColumnTotals.checked   = !!appState.totals.showColumnTotals;
     if (optSubtotals)      optSubtotals.checked      = !!appState.totals.showSubtotals;
     if (optRepeatItemLabels) optRepeatItemLabels.checked = !!appState.totals.repeatItemLabels;
-    // Layout radio
     layoutRadios.forEach(r => { r.checked = (r.value === appState.layout); });
-    // After the dataset change handler runs, columns + sheet are loaded.
-    // We re-fire change to make sure the sheet dropdown reflects state.
-    if (datasetSelect && appState.datasetId) {
-      datasetSelect.dispatchEvent(new Event("change"));
-    }
+    updateBadges();
   }
 
   function maybeOfferDraftRecovery() {
@@ -1824,12 +1922,11 @@
   }
 
   if (restoreDraftBtn) {
-    restoreDraftBtn.addEventListener("click", () => {
+    restoreDraftBtn.addEventListener("click", async () => {
       const raw = draftBanner && draftBanner.dataset.draft;
       if (!raw) return;
-      const draft = JSON.parse(raw);
-      applyDraft(draft);
       draftBanner.classList.add("d-none");
+      await applyDraft(JSON.parse(raw));
     });
   }
   if (discardDraftBtn) {
@@ -1852,8 +1949,11 @@
     if (el) el.addEventListener("change", scheduleDraftSave);
   });
   layoutRadios.forEach(r => r.addEventListener("change", scheduleDraftSave));
-  // After the dataset loads, check for a draft to recover.
-  setTimeout(maybeOfferDraftRecovery, 600);
+  // After the dataset list loads, check for a draft to recover (skip it
+  // when the page was opened for a specific dataset via ?dataset_id=).
+  datasetsReady.then(() => {
+    if (!new URLSearchParams(window.location.search).get("dataset_id")) maybeOfferDraftRecovery();
+  });
 
   // Hook the render call to also save the draft.
   window.addEventListener("beforeunload", () => {

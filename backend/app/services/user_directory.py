@@ -201,9 +201,17 @@ def _load_csv(path: str, normaliser) -> Tuple[List[DirectoryEntry], Optional[str
     is kept in that case so the app keeps working.
     """
     if not os.path.exists(path):
-        return [], f"file not found: {path}"
+        # A missing file is fine — that source just has no entries.
+        return [], None
+    if os.path.isdir(path):
+        return [], (
+            f"{path} is a directory, not a CSV file (Docker creates a "
+            "directory when a bind-mounted file is missing on the host)."
+        )
     try:
-        with open(path, "r", encoding="utf-8", newline="") as f:
+        # utf-8-sig strips the byte-order mark Excel / PowerShell often
+        # write, which would otherwise corrupt the first header name.
+        with open(path, "r", encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
             records: List[DirectoryEntry] = []
             seen = set()
@@ -267,7 +275,7 @@ def initial_load() -> None:
         users, dls, err = _load_from_disk(_USERS_PATH, _DLS_PATH)
         _USERS = users
         _DLS   = dls
-        _LAST_LOAD_AT = time.time() if not err else None
+        _LAST_LOAD_AT = time.time()
         _LOAD_ERROR = err
 
 
@@ -317,23 +325,27 @@ def reload(force: bool = False) -> Dict[str, Any]:
         err: Optional[str] = None
         if force or users_changed:
             new_users, err_u = _load_csv(users_path, _normalise_user)
+            # Record the mtime even on failure: the file is re-read when it
+            # changes again, not on every request (the previous code
+            # re-parsed both CSVs on every typeahead keystroke after a
+            # single bad file).
+            _USERS_MTIME = users_mtime
             if err_u is None:
                 _USERS = new_users
-                _USERS_MTIME = users_mtime
             else:
                 err = err_u
 
         if force or dls_changed:
             new_dls, err_d = _load_csv(dls_path, _normalise_dl)
+            _DLS_MTIME = dls_mtime
             if err_d is None:
                 _DLS = new_dls
-                _DLS_MTIME = dls_mtime
             else:
                 err = err or err_d
 
+        _LOAD_ERROR = err
         if err is None:
             _LAST_LOAD_AT = time.time()
-            _LOAD_ERROR = None
             return {
                 "ok":        True,
                 "users":     len(_USERS),
@@ -389,7 +401,7 @@ def _ensure_fresh() -> None:
         except OSError:
             pass
         if users_mtime != _USERS_MTIME or dls_mtime != _DLS_MTIME:
-            reload(force=True)
+            reload(force=False)  # re-reads only the file(s) that changed
 
 
 def search(
@@ -499,7 +511,7 @@ def _iso_ist(epoch: float) -> Optional[str]:
         # Import lazily to avoid a hard dependency on tz at module
         # import time (tz is only loaded in app.utils).
         from app.utils.tz import iso_ist
-        return iso_ist(datetime.fromtimestamp(epoch))
+        return iso_ist(datetime.utcfromtimestamp(epoch))
     except Exception:
         return None
 

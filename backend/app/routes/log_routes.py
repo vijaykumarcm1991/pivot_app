@@ -10,7 +10,6 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -24,7 +23,7 @@ from app.models.app_settings import APP_VERSION
 
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+from app.templating import templates
 
 
 @router.get("/logs", response_class=HTMLResponse)

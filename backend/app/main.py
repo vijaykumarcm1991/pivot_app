@@ -2,10 +2,13 @@
 Pivot App — FastAPI entry point.
 """
 
+import base64
 import logging
+import os
+import secrets
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -39,13 +42,44 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — allow all origins for internal tooling (tighten in production)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS — the UI is served from the same origin as the API, so no
+# cross-origin access is needed. Extra origins can be allowed explicitly
+# with a comma-separated CORS_ALLOW_ORIGINS env var.
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+# Optional HTTP Basic authentication. Disabled unless BOTH
+# APP_AUTH_USERNAME and APP_AUTH_PASSWORD are set (e.g. in
+# docker-compose.yml), so existing deployments behave exactly as before.
+# /health stays open for container health checks.
+_AUTH_USER = os.environ.get("APP_AUTH_USERNAME", "")
+_AUTH_PASS = os.environ.get("APP_AUTH_PASSWORD", "")
+
+
+@app.middleware("http")
+async def _basic_auth(request: Request, call_next):
+    if not (_AUTH_USER and _AUTH_PASS) or request.url.path == "/health":
+        return await call_next(request)
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("basic "):
+        try:
+            user, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+        except Exception:
+            user, password = "", ""
+        if secrets.compare_digest(user, _AUTH_USER) and secrets.compare_digest(password, _AUTH_PASS):
+            return await call_next(request)
+    return Response(
+        status_code=401,
+        content="Authentication required",
+        headers={"WWW-Authenticate": 'Basic realm="Pivot App"'},
+    )
 
 # Static files (CSS, JS)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -82,9 +116,7 @@ async def _add_cache_headers(request: Request, call_next):
 
 def _render_error_page(request: Request, status_code: int, heading: str, message: str) -> HTMLResponse:
     """Render the friendly error template (no stack trace)."""
-    from fastapi.templating import Jinja2Templates
-    from app.config.settings import APP_NAME
-    templates = Jinja2Templates(directory="app/templates")
+    from app.templating import templates
     return templates.TemplateResponse(
         "error.html",
         {
@@ -92,7 +124,6 @@ def _render_error_page(request: Request, status_code: int, heading: str, message
             "status_code": status_code,
             "heading":     heading,
             "message":     message,
-            "app_name":    APP_NAME,
         },
         status_code=status_code,
     )
@@ -102,8 +133,7 @@ def _render_error_page(request: Request, status_code: int, heading: str, message
 async def not_found_handler(request: Request, exc):
     # API endpoints expect JSON, not the friendly HTML page.
     if request.url.path.startswith("/api/"):
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=404, content={"detail": "Not found"})
+        return JSONResponse(status_code=404, content={"detail": str(getattr(exc, "detail", "Not found"))})
     return _render_error_page(
         request, 404,
         "Page not found",
@@ -113,6 +143,8 @@ async def not_found_handler(request: Request, exc):
 
 @app.exception_handler(403)
 async def forbidden_handler(request: Request, exc):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(status_code=403, content={"detail": str(getattr(exc, "detail", "Forbidden"))})
     return _render_error_page(
         request, 403,
         "Access denied",
@@ -128,7 +160,6 @@ async def bad_request_handler(request: Request, exc):
     # character at line 1 column 1" if we returned HTML here.  The
     # friendly error page is only meant for browser navigation.
     if request.url.path.startswith("/api/"):
-        from fastapi.responses import JSONResponse
         return JSONResponse(status_code=400, content={"detail": str(detail)})
     return _render_error_page(request, 400, "Bad request", str(detail))
 
@@ -140,7 +171,6 @@ async def internal_error_handler(request: Request, exc):
     # Same as above — API endpoints get JSON, browser navigations get
     # the friendly error page.
     if request.url.path.startswith("/api/"):
-        from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"},

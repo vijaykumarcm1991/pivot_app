@@ -14,6 +14,10 @@ services:
       - DB_PATH=/app/data/pivot.db
       - USERS_CSV_PATH=/app/Users.csv
       - DISTRIBUTION_LISTS_CSV_PATH=/app/DistributionLists.csv
+      # Optional login for the whole app (HTTP Basic). Leave unset to
+      # keep the app open on the internal network, as before.
+      # - APP_AUTH_USERNAME=admin
+      # - APP_AUTH_PASSWORD=change-me
     volumes:
       - uploads_data:/app/uploads
       - reports_data:/app/generated_reports
@@ -25,8 +29,24 @@ services:
       # files at ./Users.csv + ./DistributionLists.csv (project
       # root) and the existing mounts pick them up — no rebuild
       # required.
-      - ./Users.csv:/app/Users.csv:ro
-      - ./DistributionLists.csv:/app/DistributionLists.csv:ro
+      #
+      # `create_host_path: false` stops Docker from silently creating
+      # root-owned DIRECTORIES named Users.csv / DistributionLists.csv
+      # when the files are missing. build_start.sh creates header-only
+      # placeholders, so always start the stack with that script (or
+      # create the two files yourself first).
+      - type: bind
+        source: ./Users.csv
+        target: /app/Users.csv
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./DistributionLists.csv
+        target: /app/DistributionLists.csv
+        read_only: true
+        bind:
+          create_host_path: false
     expose:
       - "8000"
 

@@ -54,6 +54,14 @@
     if (!pivotRow || typeof pivotRow !== "object") return {};
     if (!response || !response.metadata) return {};
 
+    // The engine stamps every pivot row with `__rowFields` — the exact
+    // {rowField: value} identity of that row in BOTH layouts (compact
+    // rows only carry a merged "Rows" label, which can't be matched).
+    // Use it whenever present.
+    if (pivotRow.__rowFields && typeof pivotRow.__rowFields === "object") {
+      return Object.assign({}, pivotRow.__rowFields);
+    }
+
     const meta   = response.metadata || {};
     const aggs   = response.aggregations || [];
     const totals = response.totals || {};

@@ -32,7 +32,10 @@ The contract
   soft_delete_from_pivot(db, dataset_id, sheet_name, pivot_request,
                           selections, *, actor="ui")
         → returns {"matched": int, "deleted": int, "audit_id": int,
-                   "deleted_record_ids": [int, ...]}
+                   "selections": int}
+
+  count_matching_records(db, pivot_request=..., selections=...)
+        → int  (dry run — nothing is written)
 
   The caller (the route) is responsible for turning this dict into
   a Pydantic response and triggering a re-render of the pivot on
@@ -40,7 +43,6 @@ The contract
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -51,9 +53,9 @@ from app.models.dataset import Dataset
 from app.models.delete_audit import DeleteAudit
 from app.models.soft_deleted_record import SoftDeletedRecord
 from app.repositories.dataset_repository import get_dataset_by_id
-from app.services.pivot_service import build_drilldown
-from app.services.row_keys import row_source_key
-from app.schemas.pivot import PivotDrilldownRequest, PivotValue
+from app.services.pivot_service import PivotError, _df_to_records, match_selections
+from app.services.row_keys import frame_row_keys
+from app.schemas.pivot import PivotRequest
 from app.services import metadata_cache
 from app.services.app_logging import log_event
 from app.utils.tz import iso_ist
@@ -75,41 +77,48 @@ def _existing_keys(db: Session, dataset_id: int, sheet_name: str) -> set:
     return {r[0] for r in rows if r[0]}
 
 
-def _pivot_request_to_drilldown_request(
-    pivot_request: Any,
-    selection: Dict[str, Any],
-    limit: int = 5000,
-) -> PivotDrilldownRequest:
-    """Translate a pivot request + one selection into a DrilldownRequest."""
-    # The pivot_request can be a Pydantic model or a plain dict; we
-    # accept both for forward compatibility.
+def _to_pivot_request(pivot_request: Any) -> PivotRequest:
+    """Accept a PivotRequest or a plain camelCase / snake_case dict."""
+    if isinstance(pivot_request, PivotRequest):
+        return pivot_request
     if hasattr(pivot_request, "model_dump"):
-        pr = pivot_request.model_dump(by_alias=True)
-    elif isinstance(pivot_request, dict):
-        pr = dict(pivot_request)
-    else:
-        pr = {}
+        pivot_request = pivot_request.model_dump(by_alias=True)
+    if not isinstance(pivot_request, dict):
+        raise SoftDeleteError("Invalid pivot request.")
+    data = {k: v for k, v in pivot_request.items() if k not in {"selection", "limit", "availableColumns", "datasetName"}}
+    try:
+        return PivotRequest(**data)
+    except Exception as exc:
+        raise SoftDeleteError(f"Invalid pivot request: {exc}") from exc
 
-    def _get(*names, default=None):
-        for n in names:
-            if n in pr:
-                return pr[n]
-        return default
 
-    return PivotDrilldownRequest(
-        dataset_id=_get("datasetId", "dataset_id"),
-        sheet_name=_get("sheetName", "sheet_name"),
-        rows=list(_get("rows", default=[]) or []),
-        columns=list(_get("columns", default=[]) or []),
-        values=_get("values", default=[]) or [],
-        filters=_get("filters", default={}) or {},
-        date_grouping=_get("dateGrouping", "date_grouping", default={}) or {},
-        sorting=_get("sorting", default={}) or {},
-        totals=_get("totals", default={}) or {},
-        layout=_get("layout", default="tabular") or "tabular",
-        selection=selection,
-        limit=limit,
-    )
+def _matched_records(db: Session, pivot_request: Any, selections: List[Dict[str, Any]]):
+    """Return (request, matched DataFrame) for the union of `selections`."""
+    if not selections:
+        raise SoftDeleteError("No pivot rows selected for deletion.")
+    if any(not isinstance(s, dict) or not s for s in selections):
+        # An empty selection would match every record — refuse outright
+        # unless the pivot has no row fields at all.
+        req = _to_pivot_request(pivot_request)
+        if req.rows:
+            raise SoftDeleteError(
+                "A selected row has no row-field values, so it cannot be "
+                "matched safely. Nothing was deleted."
+            )
+    req = _to_pivot_request(pivot_request)
+    try:
+        matched = match_selections(db, req, selections)
+    except PivotError as exc:
+        raise SoftDeleteError(str(exc)) from exc
+    return req, matched
+
+
+def count_matching_records(
+    db: Session, *, pivot_request: Any, selections: List[Dict[str, Any]]
+) -> int:
+    """Dry run: number of distinct source records a delete would hide."""
+    _, matched = _matched_records(db, pivot_request, selections)
+    return int(len(matched))
 
 
 def soft_delete_from_pivot(
@@ -127,7 +136,8 @@ def soft_delete_from_pivot(
     The caller passes the same `PivotRequest` the user used to compute
     the pivot (so the engine can rebuild the same filtered / grouped
     context) and a list of `selections` — each one a {field: value}
-    map describing a pivot row to delete.
+    map describing a pivot row to delete. Every matching record is
+    deleted (there is no row cap).
 
     Returns a small dict with the matched/deleted counts and the new
     audit row id, ready to surface to the user as a success toast.
@@ -137,6 +147,11 @@ def soft_delete_from_pivot(
     dataset = get_dataset_by_id(db, dataset_id)
     if not dataset:
         raise SoftDeleteError("Dataset not found.")
+
+    req = _to_pivot_request(pivot_request)
+    if req.dataset_id != dataset_id or req.sheet_name != sheet_name:
+        raise SoftDeleteError("Pivot request does not match the dataset / sheet being deleted from.")
+    pivot_payload_json = json.dumps(req.model_dump(by_alias=True), default=str)
 
     audit = DeleteAudit(
         timestamp=datetime.utcnow(),
@@ -149,12 +164,7 @@ def soft_delete_from_pivot(
         selection_criteria=json.dumps(selections, default=str),
         status="in_progress",
         actor=actor,
-        pivot_payload_json=json.dumps(
-            pivot_request.model_dump(by_alias=True)
-            if hasattr(pivot_request, "model_dump")
-            else (pivot_request if isinstance(pivot_request, dict) else {}),
-            default=str,
-        ),
+        pivot_payload_json=pivot_payload_json,
     )
     db.add(audit)
     db.commit()
@@ -169,49 +179,32 @@ def soft_delete_from_pivot(
     )
 
     try:
+        _, matched = _matched_records(db, req, selections)
         existing = _existing_keys(db, dataset_id, sheet_name)
-        new_keys: set = set()
-        new_rows: List[Dict[str, Any]] = []
-        total_matched = 0
+        keys = frame_row_keys(matched)
+        records = _df_to_records(matched)
 
-        for sel in selections:
-            try:
-                req = _pivot_request_to_drilldown_request(pivot_request, sel)
-                result = build_drilldown(db, req)
-            except Exception as exc:
-                # Continue with the next selection — a bad selection
-                # shouldn't kill the whole delete.
-                log_event(
-                    "warning",
-                    "Pivot row lookup failed during delete",
-                    category="pivot_delete",
-                    details=f"selection={sel}: {exc}",
-                )
+        new_objects: List[SoftDeletedRecord] = []
+        seen: set = set()
+        now = datetime.utcnow()
+        for key, row in zip(keys, records):
+            if key in existing or key in seen:
                 continue
-
-            total_matched += int(result.metadata.get("matched_rows") or 0)
-            for row in result.rows:
-                key = row_source_key(row)
-                if key in existing or key in new_keys:
-                    continue
-                new_keys.add(key)
-                new_rows.append(row)
-
-        # Bulk-insert the new soft-delete rows.
-        for row in new_rows:
-            db.add(SoftDeletedRecord(
+            seen.add(key)
+            new_objects.append(SoftDeletedRecord(
                 dataset_id=dataset_id,
                 sheet_name=sheet_name,
-                source_key=row_source_key(row),
+                source_key=key,
                 row_payload=json.dumps(row, default=str)[:65000],
-                pivot_request=audit.pivot_payload_json,
-                deleted_at=datetime.utcnow(),
+                pivot_request=pivot_payload_json,
+                deleted_at=now,
                 deleted_by=actor,
                 delete_audit_id=audit.id,
             ))
+        db.add_all(new_objects)
 
-        audit.source_records_found   = total_matched
-        audit.source_records_deleted = len(new_rows)
+        audit.source_records_found   = int(len(matched))
+        audit.source_records_deleted = len(new_objects)
         audit.status = "success"
         db.commit()
         db.refresh(audit)
@@ -223,25 +216,28 @@ def soft_delete_from_pivot(
             "info",
             "Pivot records delete completed",
             category="pivot_delete",
-            details=f"audit_id={audit.id} matched={total_matched} "
-                    f"deleted={len(new_rows)} actor={actor}",
+            details=f"audit_id={audit.id} matched={len(matched)} "
+                    f"deleted={len(new_objects)} actor={actor}",
         )
 
         return {
             "audit_id":     audit.id,
-            "matched":      total_matched,
-            "deleted":      len(new_rows),
+            "matched":      int(len(matched)),
+            "deleted":      len(new_objects),
             "selections":   len(selections),
         }
     except Exception as exc:
-        audit.status = "failed"
-        audit.error_message = str(exc)[:4000]
-        db.commit()
+        db.rollback()
+        audit = db.query(DeleteAudit).filter(DeleteAudit.id == audit.id).first()
+        if audit is not None:
+            audit.status = "failed"
+            audit.error_message = str(exc)[:4000]
+            db.commit()
         log_event(
             "error",
             "Pivot records delete failed",
             category="pivot_delete",
-            details=f"audit_id={audit.id} error={exc}",
+            details=f"error={exc}",
         )
         raise
 

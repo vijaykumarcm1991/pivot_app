@@ -113,11 +113,20 @@ def send_email(
 
     recipients: List[str] = to_clean + cc_clean + bcc_clean
 
-    # Connect + send
+    # Connect + send. Port 465 is implicit TLS (SMTPS); any other port
+    # with TLS enabled uses STARTTLS; TLS disabled sends in plain text.
+    port = int(settings.port)
     try:
-        if settings.use_tls:
+        if settings.use_tls and port == 465:
             context = ssl.create_default_context()
-            with smtplib.SMTP(settings.host, int(settings.port), timeout=30) as server:
+            with smtplib.SMTP_SSL(settings.host, port, timeout=30, context=context) as server:
+                server.ehlo()
+                if settings.username:
+                    server.login(settings.username, settings.password or "")
+                server.send_message(msg, from_addr=settings.sender_email, to_addrs=recipients)
+        elif settings.use_tls:
+            context = ssl.create_default_context()
+            with smtplib.SMTP(settings.host, port, timeout=30) as server:
                 server.ehlo()
                 server.starttls(context=context)
                 server.ehlo()
@@ -125,7 +134,7 @@ def send_email(
                     server.login(settings.username, settings.password or "")
                 server.send_message(msg, from_addr=settings.sender_email, to_addrs=recipients)
         else:
-            with smtplib.SMTP(settings.host, int(settings.port), timeout=30) as server:
+            with smtplib.SMTP(settings.host, port, timeout=30) as server:
                 server.ehlo()
                 if settings.username:
                     server.login(settings.username, settings.password or "")

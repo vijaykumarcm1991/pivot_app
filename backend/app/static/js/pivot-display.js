@@ -116,6 +116,18 @@
     refreshAllUis();
   }
 
+  /** Restore saved display options (payload shape: numberFormat,
+   *  dateFormat, conditionalFormats, frozenColumns, hiddenColumns). */
+  function setState(opts) {
+    const o = opts || {};
+    state.numberFormat = Object.assign({}, o.numberFormat || {});
+    state.dateFormat   = Object.assign({}, o.dateFormat || {});
+    state.conditional  = Array.isArray(o.conditionalFormats) ? o.conditionalFormats.slice() : [];
+    state.frozen       = Array.isArray(o.frozenColumns) ? o.frozenColumns.slice() : [];
+    state.hidden       = Array.isArray(o.hiddenColumns) ? o.hiddenColumns.slice() : [];
+    refreshAllUis();
+  }
+
   function getAvailableFields()  { return state.availableFields.slice(); }
   function getFrozenColumns()     { return state.frozen.slice(); }
   function getHiddenColumns()     { return state.hidden.slice(); }
@@ -425,6 +437,7 @@
     init,
     reset,
     getState,
+    setState,
     applyToGrid,
     getAvailableFields,
     setAvailableFields,

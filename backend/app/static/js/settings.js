@@ -32,9 +32,12 @@
       await save();
     });
     resetBtn.addEventListener("click", async () => {
-      if (confirm("Discard unsaved changes and reload from the server?")) {
-        load();
-      }
+      const ok = await window.AppUI.confirm({
+        title: "Discard changes?",
+        body: "Unsaved changes will be lost and the settings reloaded from the server.",
+        confirmText: "Discard",
+      });
+      if (ok) load();
     });
 
     async function load() {

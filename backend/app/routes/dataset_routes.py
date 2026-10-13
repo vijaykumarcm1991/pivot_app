@@ -16,14 +16,13 @@ import os
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from typing import List
 
 from app.config.database import get_db
 from app.config.settings import UPLOAD_DIR
 from app.models.deleted_dataset import DeletedDataset
-from app.repositories.dataset_repository import get_all_datasets, get_dataset_by_id, delete_dataset
+from app.repositories.dataset_repository import get_all_datasets, get_dataset_by_id
 from app.repositories.sheet_repository import get_sheet, delete_sheets_by_dataset
 from app.repositories.column_repository import delete_columns_by_dataset
 from app.utils.file_utils import build_upload_path
@@ -40,7 +39,7 @@ from app.services import metadata_cache
 from app.services.app_logging import log_event
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+from app.templating import templates
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +47,7 @@ templates = Jinja2Templates(directory="app/templates")
 # ---------------------------------------------------------------------------
 
 @router.get("/manage", response_class=HTMLResponse)
-async def manage_page(request: Request, db: Session = Depends(get_db)):
+def manage_page(request: Request, db: Session = Depends(get_db)):
     """Render the Dataset Management UI."""
     datasets = get_all_datasets(db)
     return templates.TemplateResponse(
@@ -143,6 +142,11 @@ def api_delete_dataset(dataset_id: int, req: Request, db: Session = Depends(get_
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
+    # Read everything we need up front — the ORM object is expired once
+    # the delete is committed.
+    filename = dataset.filename
+    stored_filename = dataset.stored_filename
+
     try:
         # Phase 8 — capture metadata for the deleted_datasets audit
         # before we drop the row.
@@ -158,28 +162,27 @@ def api_delete_dataset(dataset_id: int, req: Request, db: Session = Depends(get_
         )
         db.add(snapshot)
 
-        # 1. Delete the stored file from disk
-        filepath = build_upload_path(dataset.stored_filename, UPLOAD_DIR)
-        if os.path.exists(filepath):
-            os.remove(filepath)
-
-        # 2. Delete columns metadata
-        delete_columns_by_dataset(db, dataset_id)
-
-        # 3. Delete sheets metadata
-        delete_sheets_by_dataset(db, dataset_id)
-
-        # 4. Delete the dataset record itself
-        delete_dataset(db, dataset_id)
-
-        # 5. Drop any soft-deleted records for this dataset (cascading)
+        # Every database change happens in ONE transaction; the file is
+        # removed from disk only after the commit succeeds, so a failure
+        # can never leave a dataset row pointing at a missing file.
         from app.models.soft_deleted_record import SoftDeletedRecord
         from app.models.delete_audit import DeleteAudit
+        delete_columns_by_dataset(db, dataset_id)
+        delete_sheets_by_dataset(db, dataset_id)
         db.query(SoftDeletedRecord).filter(SoftDeletedRecord.dataset_id == dataset_id).delete()
         db.query(DeleteAudit).filter(DeleteAudit.dataset_id == dataset_id).delete()
-
-        # 6. Commit all deletions
+        db.delete(dataset)
         db.commit()
+
+        filepath = build_upload_path(stored_filename, UPLOAD_DIR)
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except OSError as exc:
+            # The DB is already consistent; an orphaned file is picked up
+            # by the Cleanup utility ("Orphaned uploaded files").
+            log_event("warning", "Dataset file remove failed", category="dataset",
+                      details=f"id={dataset_id} path={filepath}: {exc}", request=req)
 
         # 7. Phase 8 — invalidate the in-memory cache so any open
         # pivot for this dataset gets a fresh view on next compute.
@@ -189,13 +192,13 @@ def api_delete_dataset(dataset_id: int, req: Request, db: Session = Depends(get_
             "info",
             "Dataset deleted",
             category="dataset",
-            details=f"id={dataset_id} file={dataset.filename}",
+            details=f"id={dataset_id} file={filename}",
             request=req,
         )
 
         return JSONResponse(
             content={
-                "message": f"Dataset '{dataset.filename}' deleted successfully",
+                "message": f"Dataset '{filename}' deleted successfully",
                 "deleted_id": dataset_id,
             },
             status_code=200,

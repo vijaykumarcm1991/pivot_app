@@ -16,7 +16,6 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -31,12 +30,16 @@ from app.schemas.pivot import (
 )
 from app.services.pivot_service import PivotError, build_drilldown, build_pivot
 from app.services.pivot_validation_service import validate_pivot
-from app.services.soft_delete_service import SoftDeleteError, soft_delete_from_pivot
+from app.services.soft_delete_service import (
+    SoftDeleteError,
+    count_matching_records,
+    soft_delete_from_pivot,
+)
 from app.services import metadata_cache
 from app.services.app_logging import log_event
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+from app.templating import templates
 
 
 # ── Phase 8: soft-delete request schema ─────────────────────────────────
@@ -129,58 +132,35 @@ def api_pivot_delete_records(
     "you are about to delete N records" before they confirm.
     """
     try:
-        # Re-hydrate the pivot request into the right shape so the
-        # soft-delete service can rebuild the drilldown context.
-        from app.schemas.pivot import PivotRequest as _PR
-        try:
-            pivot_req = _PR(**payload.pivot_request)
-        except Exception:
-            pivot_req = payload.pivot_request  # tolerate plain dicts
+        pr = payload.pivot_request or {}
+        ds_id = pr.get("datasetId", pr.get("dataset_id"))
+        sheet_name = pr.get("sheetName", pr.get("sheet_name"))
+        if ds_id is None or not sheet_name:
+            raise SoftDeleteError("Pivot request is missing datasetId / sheetName.")
 
-        ds_id = pivot_req.dataset_id if hasattr(pivot_req, "dataset_id") else payload.pivot_request.get("datasetId")
-        sheet_name = pivot_req.sheet_name if hasattr(pivot_req, "sheet_name") else payload.pivot_request.get("sheetName")
-
-        # Phase 8 (safety) — dry-run: count affected records without
-        # actually deleting anything.  Returns the same shape as a
-        # real delete response but with `deleted: 0`.
+        # Phase 8 (safety) — dry-run: count the distinct records a delete
+        # would hide, using exactly the same matching code as the real
+        # delete. Errors are reported, never swallowed into a 0 count.
         if payload.dry_run:
-            from app.services.soft_delete_service import SoftDeleteError as _SDE
-            from app.services.soft_delete_service import _pivot_request_to_drilldown_request
-            # Re-use the same single-drilldown helper that soft_delete
-            # uses for each selection, then sum the matched counts.
-            total_matched = 0
-            for sel in payload.selections:
-                try:
-                    req = _pivot_request_to_drilldown_request(
-                        payload.pivot_request if isinstance(payload.pivot_request, dict) else pivot_req,
-                        sel,
-                        limit=5000,
-                    )
-                    result = build_drilldown(db, req)
-                    total_matched += int(result.metadata.get("matched_rows") or 0)
-                except _SDE:
-                    continue
-                except Exception:
-                    continue
+            matched = count_matching_records(
+                db, pivot_request=pr, selections=payload.selections,
+            )
             return DeleteRecordsResponse(
                 auditId=0,
-                matched=total_matched,
+                matched=matched,
                 deleted=0,
                 selections=len(payload.selections),
             )
 
         result = soft_delete_from_pivot(
             db,
-            dataset_id=ds_id,
+            dataset_id=int(ds_id),
             sheet_name=sheet_name,
-            pivot_request=pivot_req,
+            pivot_request=pr,
             selections=payload.selections,
             actor="ui",
         )
-        # Invalidate the cache for this dataset — the next pivot
-        # call will recompute.
-        if ds_id:
-            metadata_cache.invalidate_dataset(int(ds_id))
+        metadata_cache.invalidate_dataset(int(ds_id))
         log_event(
             "info",
             "Pivot records delete requested",
@@ -199,4 +179,4 @@ def api_pivot_delete_records(
     except Exception as exc:
         log_event("error", "Pivot records delete failed", category="pivot_delete",
                   details=str(exc), request=req)
-        raise HTTPException(status_code=500, detail=f"Delete failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Delete failed: {exc}") from exc

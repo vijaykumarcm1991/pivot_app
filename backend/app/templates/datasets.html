@@ -1,54 +1,81 @@
 {% extends "base.html" %}
-{% block title %}Datasets — Pivot App{% endblock %}
+{% block title %}Datasets — {{ app_name() }}{% endblock %}
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h2 class="fw-bold"><i class="bi bi-folder2-open me-2 text-warning"></i>Datasets</h2>
-  <a href="/" class="btn btn-primary btn-sm">
-    <i class="bi bi-plus-lg me-1"></i>New Upload
-  </a>
-</div>
+<header class="page-header">
+  <div>
+    <div class="page-eyebrow">Workspace</div>
+    <h1 class="page-title">Datasets</h1>
+    <p class="page-subtitle">Every file you've uploaded. Open one to preview it, inspect its columns, or start a pivot.</p>
+  </div>
+  <div class="page-actions">
+    <a href="/" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>New upload</a>
+  </div>
+</header>
 
 {% if datasets %}
-<div class="card border-0 shadow-sm">
+<div class="stat-grid mb-4">
+  <div class="stat-tile">
+    <div class="stat-label"><i class="bi bi-collection"></i>Datasets</div>
+    <div class="stat-num">{{ datasets | length }}</div>
+  </div>
+  <div class="stat-tile">
+    <div class="stat-label"><i class="bi bi-list-ol"></i>Total rows</div>
+    <div class="stat-num">{{ "{:,}".format(datasets | sum(attribute='total_rows')) }}</div>
+  </div>
+  <div class="stat-tile">
+    <div class="stat-label"><i class="bi bi-clock-history"></i>Latest upload</div>
+    <div class="stat-num" style="font-size:1rem;padding-top:.45rem">{{ datasets[0].upload_time_ist }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex flex-wrap align-items-center gap-2">
+    <span class="me-auto">All datasets</span>
+    <div class="input-group input-group-sm" style="max-width: 280px;">
+      <span class="input-group-text"><i class="bi bi-search"></i></span>
+      <input id="datasetFilter" type="search" class="form-control" placeholder="Filter by filename…" aria-label="Filter datasets">
+    </div>
+  </div>
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
+      <table class="table table-hover align-middle mb-0" id="datasetTable">
         <thead>
           <tr>
-            <th>#</th>
-            <th>Filename</th>
-            <th>Rows</th>
-            <th>Columns</th>
-            <th>Uploaded At</th>
-            <th>Actions</th>
+            <th style="width:64px">ID</th>
+            <th>File</th>
+            <th class="text-end">Rows</th>
+            <th class="text-end">Columns</th>
+            <th>Uploaded</th>
+            <th class="text-end">Actions</th>
           </tr>
         </thead>
         <tbody>
           {% for ds in datasets %}
-          <tr>
-            <td class="text-muted small">{{ ds.id }}</td>
+          <tr data-name="{{ ds.filename | lower }}">
+            <td class="text-muted tabular">#{{ ds.id }}</td>
             <td>
-              <i class="bi bi-file-earmark-spreadsheet text-success me-1"></i>
-              <strong>{{ ds.filename }}</strong>
+              <a href="/preview/{{ ds.id }}" class="d-inline-flex align-items-center gap-2 text-decoration-none fw-semibold" style="color:var(--text)">
+                <span class="file-icon d-inline-grid" style="width:30px;height:30px;border-radius:8px;place-items:center;background:var(--success-soft);color:var(--success)">
+                  <i class="bi bi-file-earmark-spreadsheet"></i>
+                </span>
+                {{ ds.filename }}
+              </a>
             </td>
-            <td>{{ ds.total_rows }}</td>
-            <td>{{ ds.total_columns }}</td>
+            <td class="text-end tabular">{{ "{:,}".format(ds.total_rows) }}</td>
+            <td class="text-end tabular">{{ ds.total_columns }}</td>
             <td class="text-muted small">{{ ds.upload_time_ist }}</td>
-            <td>
-              <a href="/preview/{{ ds.id }}" class="btn btn-sm btn-outline-primary me-1">
-                <i class="bi bi-eye me-1"></i>Preview
-              </a>
-              <a href="/manage?dataset_id={{ ds.id }}" class="btn btn-sm btn-outline-secondary me-1">
-                <i class="bi bi-sliders me-1"></i>Manage
-              </a>
-              <button class="btn btn-sm btn-outline-danger" data-delete-dataset-id="{{ ds.id }}" data-delete-dataset-name="{{ ds.filename }}">
-                <i class="bi bi-trash me-1"></i>Delete
+            <td class="text-end text-nowrap">
+              <a href="/preview/{{ ds.id }}" class="btn btn-sm btn-outline-secondary" title="Preview"><i class="bi bi-eye"></i><span class="d-none d-xl-inline ms-1">Preview</span></a>
+              <a href="/manage?dataset_id={{ ds.id }}" class="btn btn-sm btn-outline-secondary" title="Manage"><i class="bi bi-sliders2"></i><span class="d-none d-xl-inline ms-1">Manage</span></a>
+              <button class="btn btn-sm btn-outline-danger" title="Delete" data-delete-dataset-id="{{ ds.id }}" data-delete-dataset-name="{{ ds.filename }}">
+                <i class="bi bi-trash"></i>
               </button>
             </td>
           </tr>
           {% endfor %}
+          <tr id="noMatchRow" class="d-none"><td colspan="6" class="text-center text-muted py-4">No datasets match your filter.</td></tr>
         </tbody>
       </table>
     </div>
@@ -56,45 +83,35 @@
 </div>
 
 {% else %}
-<div class="text-center py-5">
-  <i class="bi bi-inbox display-3 text-muted"></i>
-  <p class="mt-3 text-muted">No datasets uploaded yet.</p>
-  <a href="/" class="btn btn-primary"><i class="bi bi-upload me-2"></i>Upload your first file</a>
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+    <h3>No datasets yet</h3>
+    <p>Upload an Excel or CSV file to start building pivots and reports.</p>
+    <a href="/" class="btn btn-primary"><i class="bi bi-upload me-2"></i>Upload your first file</a>
+  </div>
 </div>
 {% endif %}
 
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/dataset-actions.js?v=6"></script>
 <script>
 (function () {
   "use strict";
-  document.querySelectorAll("[data-delete-dataset-id]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      const id       = btn.getAttribute("data-delete-dataset-id");
-      const filename = btn.getAttribute("data-delete-dataset-name") || "";
-      if (!confirm(`Delete dataset "${filename}"? This will also remove the uploaded file and all metadata.`)) {
-        return;
-      }
-      deleteDataset(id);
+  const filter = document.getElementById("datasetFilter");
+  if (!filter) return;
+  filter.addEventListener("input", () => {
+    const q = filter.value.trim().toLowerCase();
+    let shown = 0;
+    document.querySelectorAll("#datasetTable tbody tr[data-name]").forEach(tr => {
+      const match = !q || tr.dataset.name.includes(q);
+      tr.classList.toggle("d-none", !match);
+      if (match) shown++;
     });
+    document.getElementById("noMatchRow").classList.toggle("d-none", shown > 0);
   });
-
-  async function deleteDataset(id) {
-    try {
-      const res = await fetch(`/api/dataset/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (res.ok) {
-        alert("Dataset deleted successfully!");
-        window.location.reload();
-      } else {
-        alert(`Delete failed: ${data.detail || "Unknown error"}`);
-      }
-    } catch (err) {
-      alert("Network error occurred while deleting dataset.");
-      console.error(err);
-    }
-  }
 })();
 </script>
 {% endblock %}
