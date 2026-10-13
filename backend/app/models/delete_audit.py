@@ -27,3 +27,4 @@ class DeleteAudit(Base):
     error_message        = Column(Text, nullable=True)
     actor                = Column(String, nullable=True)  # e.g. "ui" / "cleanup"
     pivot_payload_json   = Column(Text, nullable=True)
+    restored_at          = Column(DateTime, nullable=True)  # set by "Restore"

@@ -275,6 +275,9 @@ def list_audit(
             "status":                 r.status,
             "errorMessage":           r.error_message,
             "actor":                  r.actor,
+            "restoredAt":             r.restored_at.isoformat() if r.restored_at else None,
+            "restoredAtIst":          iso_ist(r.restored_at) if r.restored_at else None,
+            "restorable":             r.status == "success" and r.restored_at is None,
         }
         for r in rows
     ]
@@ -282,3 +285,37 @@ def list_audit(
 
 def get_audit(db: Session, audit_id: int) -> Optional[DeleteAudit]:
     return db.query(DeleteAudit).filter(DeleteAudit.id == audit_id).first()
+
+
+def restore_audit(db: Session, audit_id: int, *, actor: str = "ui") -> Dict[str, Any]:
+    """Undo one Delete Records action: remove the soft-delete rows it
+    created so those records reappear in pivots, drill-downs and emails.
+
+    Records that were already hidden by an earlier delete were not
+    re-inserted by this one, so they stay hidden until that earlier delete
+    is restored too.
+    """
+    audit = get_audit(db, audit_id)
+    if audit is None:
+        raise SoftDeleteError("Delete audit entry not found.")
+    if audit.restored_at is not None:
+        raise SoftDeleteError("This delete has already been restored.")
+    if audit.status != "success":
+        raise SoftDeleteError(f"Only successful deletes can be restored (status: {audit.status}).")
+
+    restored = (
+        db.query(SoftDeletedRecord)
+        .filter(SoftDeletedRecord.delete_audit_id == audit_id)
+        .delete(synchronize_session=False)
+    )
+    audit.restored_at = datetime.utcnow()
+    audit.status = "restored"
+    db.commit()
+    metadata_cache.invalidate_dataset(audit.dataset_id)
+    log_event(
+        "info",
+        "Pivot records restored",
+        category="pivot_delete",
+        details=f"audit_id={audit_id} dataset={audit.dataset_name} restored={restored} actor={actor}",
+    )
+    return {"auditId": audit_id, "restored": int(restored), "datasetId": audit.dataset_id}

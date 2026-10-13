@@ -7,7 +7,7 @@ send a message with an HTML body and a single Excel attachment.
 
 Configuration is read from the `smtp_settings` table on every send
 (the singleton row id=1). The password is currently stored as
-plaintext for Version 1; production should encrypt it at rest.
+encrypted at rest (see app.utils.secret_box) and decrypted here.
 
 This module deliberately knows nothing about the pivot or the
 attachment. It just sends a pre-built `EmailMessage`. The
@@ -21,6 +21,7 @@ from email.message import EmailMessage
 from typing import List, Optional
 
 from app.models.smtp_settings import SMTPSettings
+from app.utils import secret_box
 
 
 class SMTPError(RuntimeError):
@@ -77,6 +78,11 @@ def send_email(
             out.append(a)
         return out
 
+    try:
+        password = secret_box.decrypt(settings.password)
+    except secret_box.SecretError as exc:
+        raise SMTPError(str(exc)) from exc
+
     to_clean = _clean(to)
     cc_clean = _clean(cc)
     bcc_clean = _clean(bcc)
@@ -122,7 +128,7 @@ def send_email(
             with smtplib.SMTP_SSL(settings.host, port, timeout=30, context=context) as server:
                 server.ehlo()
                 if settings.username:
-                    server.login(settings.username, settings.password or "")
+                    server.login(settings.username, password)
                 server.send_message(msg, from_addr=settings.sender_email, to_addrs=recipients)
         elif settings.use_tls:
             context = ssl.create_default_context()
@@ -131,13 +137,13 @@ def send_email(
                 server.starttls(context=context)
                 server.ehlo()
                 if settings.username:
-                    server.login(settings.username, settings.password or "")
+                    server.login(settings.username, password)
                 server.send_message(msg, from_addr=settings.sender_email, to_addrs=recipients)
         else:
             with smtplib.SMTP(settings.host, port, timeout=30) as server:
                 server.ehlo()
                 if settings.username:
-                    server.login(settings.username, settings.password or "")
+                    server.login(settings.username, password)
                 server.send_message(msg, from_addr=settings.sender_email, to_addrs=recipients)
     except smtplib.SMTPAuthenticationError as exc:
         raise SMTPError(f"SMTP authentication failed: {exc}") from exc
@@ -152,19 +158,16 @@ def send_email(
 def is_complete(settings: Optional[SMTPSettings]) -> bool:
     """Return True if the settings are enough to actually send an
     email. Used by the frontend to enable/disable the Send button
-    and by the backend to fail fast."""
+    and by the backend to fail fast.
 
+    Host, port and sender email are required. Credentials are optional
+    (internal relays often accept mail without login), but a username
+    without a password is incomplete — the send would fail at login.
+    """
     if settings is None:
         return False
     if not (settings.host and settings.port and settings.sender_email):
         return False
-    # username + password are only required if the server demands
-    # them, but we treat them as required in the form for simplicity.
-    if not settings.username:
-        return False
-    # The settings form treats both credentials as required, so we
-    # must check the password too — otherwise the app reports SMTP as
-    # "configured" and lets sends proceed only to fail at SMTP login.
-    if not settings.password:
+    if settings.username and not settings.password:
         return False
     return True

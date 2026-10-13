@@ -59,6 +59,7 @@ def datasets_page(request: Request, db: Session = Depends(get_db)):
     # template can render it directly without doing tz math.
     for ds in datasets:
         ds.upload_time_ist = format_ist(ds.upload_time)
+        ds.refreshed_at_ist = format_ist(ds.refreshed_at) if ds.refreshed_at else ""
     return templates.TemplateResponse(
         "datasets.html", {"request": request, "datasets": datasets}
     )
@@ -74,6 +75,7 @@ def preview_page(request: Request, dataset_id: int, db: Session = Depends(get_db
     # Pre-format ``upload_time`` in IST so the Jinja template
     # can render it directly.
     dataset.upload_time_ist = format_ist(dataset.upload_time)
+    dataset.refreshed_at_ist = format_ist(dataset.refreshed_at) if dataset.refreshed_at else ""
 
     # Re-parse to get sheet metadata and preview rows
     filepath = build_upload_path(dataset.stored_filename, UPLOAD_DIR)
@@ -146,18 +148,12 @@ def _remove_quietly(path: str) -> None:
         pass
 
 
-@router.post("/api/upload", response_model=UploadResponse)
-def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """
-    Accept an .xlsx or .csv file, save it, extract metadata, persist to DB.
-    Returns full metadata + preview rows as JSON.
+def ingest_upload(file: UploadFile, db: Session):
+    """Validate, store and parse an uploaded file.
 
-    Phase 8 — three layers of validation (extension / MIME / magic bytes)
-    + a runtime-configurable max upload size from /api/settings.
-
-    This is a plain (sync) route on purpose: parsing a workbook with
-    pandas is CPU-bound, and FastAPI runs sync routes in a worker thread
-    so a large upload no longer freezes every other request.
+    Returns (stored_filename, save_path, meta). On any failure the stored
+    file is removed and an HTTPException is raised. Shared by new uploads
+    and by "Refresh data" (replacing a dataset's file).
     """
     # --- Validate extension (cheap, first layer) ---
     ext = Path(file.filename or "").suffix.lower()
@@ -208,6 +204,24 @@ def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
         log_event("error", "Upload failed (parse)", category="upload",
                   details=f"{file.filename}: {exc}")
         raise HTTPException(status_code=422, detail=f"Failed to parse file: {exc}")
+
+    return stored_filename, save_path, meta
+
+
+@router.post("/api/upload", response_model=UploadResponse)
+def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Accept an .xlsx or .csv file, save it, extract metadata, persist to DB.
+    Returns full metadata + preview rows as JSON.
+
+    Phase 8 — three layers of validation (extension / MIME / magic bytes)
+    + a runtime-configurable max upload size from /api/settings.
+
+    This is a plain (sync) route on purpose: parsing a workbook with
+    pandas is CPU-bound, and FastAPI runs sync routes in a worker thread
+    so a large upload no longer freezes every other request.
+    """
+    stored_filename, save_path, meta = ingest_upload(file, db)
 
     # --- Persist dataset + sheet + column metadata ---
     # If anything fails after the dataset row exists, remove the row and

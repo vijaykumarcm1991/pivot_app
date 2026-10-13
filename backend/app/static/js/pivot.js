@@ -66,6 +66,8 @@
       hiddenColumns:       [],   // [field, ...]
     },
     layout: "tabular",
+    // Top N / threshold filters on aggregated values (#8)
+    valueFilters: { topN: null, conditions: [] },
     lastResponse:  null,   // last PivotResponse (for export)
   };
 
@@ -263,6 +265,7 @@
     appState.filters      = {};
     appState.dateGrouping = {};
     appState.sorting      = {};
+    appState.valueFilters = { topN: null, conditions: [] };
   }
 
   datasetSelect.addEventListener("change", () => {
@@ -292,7 +295,7 @@
     appState.columns = [];
     clearColumnSelects();
     clearResults();
-    if (!id) return;
+    if (!id) { notifySourceChanged(); return; }
 
     try {
       const data = await window.AppUI.fetchJSON(`/api/dataset/${encodeURIComponent(id)}`);
@@ -317,7 +320,16 @@
       sourceInfo.style.display = "";
     } catch (err) {
       showError("Failed to load dataset metadata: " + err.message);
+    } finally {
+      notifySourceChanged();
     }
+  }
+
+  // Lets other modules (saved pivots) react to dataset / sheet changes.
+  function notifySourceChanged() {
+    document.dispatchEvent(new CustomEvent("pivot:source-changed", {
+      detail: { datasetId: appState.datasetId, sheetName: appState.sheetName },
+    }));
   }
 
   sheetSelect.addEventListener("change", async () => {
@@ -329,6 +341,7 @@
     clearResults();
     clearColumnSelects();
     await loadColumnsForSheet(appState.datasetId, sheet);
+    notifySourceChanged();
   });
 
   async function loadColumnsForSheet(datasetId, sheetName) {
@@ -447,6 +460,7 @@
 
     sortingCard.style.display = appState.rows.length ? "" : "none";
     renderFieldChips(rowsChips, appState.rows, "rows");
+    renderValueFilters();
     renderFieldChips(colsChips, appState.columnsGroup, "columnsGroup");
     renderSortList();
     renderDateGroupingList();
@@ -619,6 +633,87 @@
         appState.values.splice(idx, 1);
         updateBadges();
       });
+    });
+  }
+
+  // ── Top N & thresholds (#8) ─────────────────────────────────────
+  const topNEnabled   = document.getElementById("topNEnabled");
+  const topNDirection = document.getElementById("topNDirection");
+  const topNCount     = document.getElementById("topNCount");
+  const topNBy        = document.getElementById("topNBy");
+  const condBy        = document.getElementById("condBy");
+  const condOp        = document.getElementById("condOp");
+  const condValue     = document.getElementById("condValue");
+  const addCondBtn    = document.getElementById("addCondBtn");
+  const condList      = document.getElementById("valueConditionList");
+  const valueFilterBadge = document.getElementById("valueFilterBadge");
+  const OP_LABEL = { gt: ">", gte: "≥", lt: "<", lte: "≤", eq: "=", ne: "≠" };
+
+  // The engine names an unconfigured value "count".
+  function valueLabels() {
+    return appState.values.length ? appState.values.map(v => v.label) : ["count"];
+  }
+
+  function renderValueFilters() {
+    if (!topNBy) return;
+    const labels = valueLabels();
+    const vf = appState.valueFilters || (appState.valueFilters = { topN: null, conditions: [] });
+    // Drop filters whose value was removed from Values.
+    if (vf.topN && !labels.includes(vf.topN.by)) vf.topN = null;
+    vf.conditions = (vf.conditions || []).filter(c => labels.includes(c.by));
+
+    const opts = labels.map(l => `<option value="${escHtml(l)}">${escHtml(l)}</option>`).join("");
+    const keepBy = vf.topN ? vf.topN.by : topNBy.value;
+    topNBy.innerHTML = opts;
+    if (labels.includes(keepBy)) topNBy.value = keepBy;
+    const keepCond = condBy.value;
+    condBy.innerHTML = opts;
+    if (labels.includes(keepCond)) condBy.value = keepCond;
+
+    topNEnabled.checked = !!vf.topN;
+    if (vf.topN) {
+      topNDirection.value = vf.topN.direction || "top";
+      topNCount.value = vf.topN.n || 10;
+    }
+    [topNDirection, topNCount, topNBy].forEach(el => { el.disabled = !vf.topN; });
+
+    condList.innerHTML = "";
+    vf.conditions.forEach((c, idx) => {
+      const div = document.createElement("div");
+      div.className = "d-flex justify-content-between align-items-center";
+      div.innerHTML = `<span>${escHtml(c.by)} <strong>${OP_LABEL[c.op] || c.op}</strong> ${escHtml(String(c.value))}</span>
+        <button type="button" class="btn btn-sm btn-outline-danger" title="Remove" data-idx="${idx}"><i class="bi bi-x-lg"></i></button>`;
+      div.querySelector("button").addEventListener("click", () => {
+        vf.conditions.splice(idx, 1);
+        renderValueFilters();
+      });
+      condList.appendChild(div);
+    });
+    if (valueFilterBadge) valueFilterBadge.textContent = (vf.topN ? 1 : 0) + vf.conditions.length;
+  }
+
+  function syncTopN() {
+    const vf = appState.valueFilters;
+    if (!topNEnabled.checked) {
+      vf.topN = null;
+    } else {
+      const n = Math.max(1, Math.min(10000, parseInt(topNCount.value, 10) || 10));
+      vf.topN = { by: topNBy.value, n, direction: topNDirection.value === "bottom" ? "bottom" : "top" };
+    }
+    renderValueFilters();
+  }
+  if (topNEnabled) {
+    [topNEnabled, topNDirection, topNCount, topNBy].forEach(el => el.addEventListener("change", syncTopN));
+    addCondBtn.addEventListener("click", () => {
+      const v = parseFloat(condValue.value);
+      if (!Number.isFinite(v)) {
+        showError("Enter a number for the threshold.");
+        return;
+      }
+      hideError();
+      appState.valueFilters.conditions.push({ by: condBy.value, op: condOp.value, value: v });
+      condValue.value = "";
+      renderValueFilters();
     });
   }
 
@@ -838,6 +933,7 @@
                         hiddenColumns:      [...(appState.displayOptions.hiddenColumns      || [])],
                       },
       layout:         appState.layout,
+      valueFilters:   JSON.parse(JSON.stringify(appState.valueFilters || { topN: null, conditions: [] })),
     };
   }
 
@@ -1807,6 +1903,17 @@
     });
   }
 
+  // ── Controller API (used by saved-pivots.js) ───────────────────────
+  window.PivotController = {
+    /** The live form configuration (what "Save" stores). */
+    getConfig: () => (appState.datasetId && appState.sheetName ? buildPayload() : null),
+    /** Load a saved configuration into the form; resolves when ready. */
+    applyConfig: (config) => applyDraft(config),
+    compute: () => computePivot(),
+    getDatasetName: () => appState.datasetName || "",
+    datasetsReady: () => datasetsReady,
+  };
+
   // ── Draft recovery (Phase 8) ─────────────────────────────────────
   //
   // Auto-save the pivot configuration to localStorage on every change.
@@ -1835,6 +1942,7 @@
           hiddenColumns:      [...(appState.displayOptions.hiddenColumns || [])],
         },
         layout:      appState.layout,
+        valueFilters: JSON.parse(JSON.stringify(appState.valueFilters || { topN: null, conditions: [] })),
         savedAt:     new Date().toISOString(),
       };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
@@ -1849,11 +1957,11 @@
    * saved sheet was replaced by the first sheet.
    */
   async function applyDraft(draft) {
-    if (!draft || !draft.datasetId) return;
+    if (!draft || !draft.datasetId) return false;
     const id = String(draft.datasetId);
     if (!Array.from(datasetSelect.options).some(o => o.value === id)) {
       showError("The saved pivot refers to a dataset that no longer exists.");
-      return;
+      return false;
     }
     datasetSelect.value = id;
     await selectDataset(id, { sheet: draft.sheetName, resetFields: true });
@@ -1880,10 +1988,16 @@
       frozenColumns: [], hiddenColumns: [],
     }, draft.displayOptions || {});
     appState.layout = draft.layout === "compact" ? "compact" : "tabular";
+    const vf = draft.valueFilters || {};
+    appState.valueFilters = {
+      topN: vf.topN && vf.topN.by ? Object.assign({ n: 10, direction: "top" }, vf.topN) : null,
+      conditions: Array.isArray(vf.conditions) ? vf.conditions.filter(c => c && c.by) : [],
+    };
     if (window.PivotDisplay && window.PivotDisplay.setState) {
       window.PivotDisplay.setState(appState.displayOptions);
     }
     restoreUIFromState();
+    return true;
   }
 
   function restoreUIFromState() {
@@ -1952,7 +2066,8 @@
   // After the dataset list loads, check for a draft to recover (skip it
   // when the page was opened for a specific dataset via ?dataset_id=).
   datasetsReady.then(() => {
-    if (!new URLSearchParams(window.location.search).get("dataset_id")) maybeOfferDraftRecovery();
+    const qs = new URLSearchParams(window.location.search);
+    if (!qs.get("dataset_id") && !qs.get("saved")) maybeOfferDraftRecovery();
   });
 
   // Hook the render call to also save the draft.

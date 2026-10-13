@@ -231,3 +231,52 @@ def test_html_404_page_renders(client):
     res = client.get("/no-such-page")
     assert res.status_code == 404
     assert "Page not found" in res.text
+
+
+ALERTS = pd.DataFrame({
+    "Cat": ["A"] * 5 + ["B"] * 3 + ["C"] * 8 + ["D"] * 1 + [None] * 2,
+    "Unit": (["X", "Y"] * 10)[:19],
+    "N": [1] * 19,
+})
+
+
+def test_top_n_keeps_highest_groups_ranked_and_totals_follow(client, upload):
+    ds = upload(ALERTS)
+    resp = _pivot(
+        client, ds, rows=["Cat"],
+        values=[{"field": "N", "aggregation": "sum", "label": "sum_N"}],
+        valueFilters={"topN": {"by": "sum_N", "n": 2, "direction": "top"}},
+    )
+    assert [(r["Cat"], r["sum_N"]) for r in _data_rows(resp)] == [("C", 8), ("A", 5)]
+    assert resp["totals"]["grand"]["sum_N"] == 13
+    assert resp["metadata"]["filtered_rows"] == 13
+
+
+def test_bottom_n_and_thresholds(client, upload):
+    ds = upload(ALERTS)
+    vals = [{"field": "N", "aggregation": "count", "label": "count_N"}]
+    bottom = _pivot(client, ds, rows=["Cat"], values=vals,
+                    valueFilters={"topN": {"by": "count_N", "n": 2, "direction": "bottom"}})
+    assert [r["Cat"] for r in _data_rows(bottom)] == ["D", "(blank)"]
+
+    thr = _pivot(client, ds, rows=["Cat"], values=vals,
+                 valueFilters={"conditions": [{"by": "count_N", "op": "gte", "value": 3},
+                                              {"by": "count_N", "op": "lt", "value": 8}]})
+    assert sorted(r["Cat"] for r in _data_rows(thr)) == ["A", "B"]
+
+
+def test_top_n_with_column_groups_ranks_by_row_total(client, upload):
+    ds = upload(ALERTS)
+    resp = _pivot(client, ds, rows=["Cat"], columns=["Unit"],
+                  values=[{"field": "N", "aggregation": "sum", "label": "sum_N"}],
+                  valueFilters={"topN": {"by": "sum_N", "n": 1}})
+    rows = _data_rows(resp)
+    assert len(rows) == 1 and rows[0]["Cat"] == "C" and rows[0]["row_total"] == 8
+
+
+def test_value_filter_unknown_label_is_400(client, upload):
+    ds = upload(ALERTS)
+    res = client.post("/api/pivot", json={"datasetId": ds, "sheetName": "Sheet1", "rows": ["Cat"],
+                                          "valueFilters": {"topN": {"by": "nope", "n": 3}}})
+    assert res.status_code == 400
+    assert "Value filter field not found" in res.json()["detail"]

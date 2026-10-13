@@ -7,7 +7,7 @@
   <div>
     <div class="page-eyebrow">Admin</div>
     <h1 class="page-title">Delete audit</h1>
-    <p class="page-subtitle">Every Delete Records action on the Pivot page: what was selected, how many records matched, and the outcome.</p>
+    <p class="page-subtitle">Every Delete Records action on the Pivot page: what was selected, how many records matched, and the outcome. Restore undoes a delete.</p>
   </div>
   <div class="page-actions">
     <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
@@ -28,6 +28,7 @@
           <option value="success">Success</option>
           <option value="failed">Failed</option>
           <option value="in_progress">In progress</option>
+          <option value="restored">Restored</option>
         </select>
       </div>
       <div class="col-md-3 d-flex gap-2">
@@ -49,7 +50,7 @@
           <th class="text-end" style="width:110px;">Matched</th>
           <th class="text-end" style="width:110px;">Deleted</th>
           <th style="width:120px;">Status</th>
-          <th style="width:90px;"></th>
+          <th style="width:160px;"></th>
         </tr>
       </thead>
       <tbody id="auditRows">
@@ -74,5 +75,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/audit.js?v=6"></script>
+<script src="/static/js/audit.js?v=7"></script>
 {% endblock %}

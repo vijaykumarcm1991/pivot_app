@@ -8,3 +8,5 @@ aiosqlite==0.20.0
 SQLAlchemy==2.0.30
 aiofiles==23.2.1
 tzdata==2024.1
+alembic==1.13.2
+cryptography==42.0.8

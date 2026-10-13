@@ -65,9 +65,10 @@
             </td>
             <td class="text-end tabular">{{ "{:,}".format(ds.total_rows) }}</td>
             <td class="text-end tabular">{{ ds.total_columns }}</td>
-            <td class="text-muted small">{{ ds.upload_time_ist }}</td>
+            <td class="text-muted small">{{ ds.upload_time_ist }}{% if ds.refreshed_at %}<div title="Data replaced via Refresh data"><i class="bi bi-arrow-repeat"></i> {{ ds.refreshed_at_ist }}</div>{% endif %}</td>
             <td class="text-end text-nowrap">
               <a href="/preview/{{ ds.id }}" class="btn btn-sm btn-outline-secondary" title="Preview"><i class="bi bi-eye"></i><span class="d-none d-xl-inline ms-1">Preview</span></a>
+              <button class="btn btn-sm btn-outline-secondary" title="Refresh data" data-refresh-dataset-id="{{ ds.id }}" data-refresh-dataset-name="{{ ds.filename }}"><i class="bi bi-arrow-repeat"></i></button>
               <a href="/manage?dataset_id={{ ds.id }}" class="btn btn-sm btn-outline-secondary" title="Manage"><i class="bi bi-sliders2"></i><span class="d-none d-xl-inline ms-1">Manage</span></a>
               <button class="btn btn-sm btn-outline-danger" title="Delete" data-delete-dataset-id="{{ ds.id }}" data-delete-dataset-name="{{ ds.filename }}">
                 <i class="bi bi-trash"></i>
@@ -96,7 +97,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/dataset-actions.js?v=6"></script>
+<script src="/static/js/dataset-actions.js?v=7"></script>
 <script>
 (function () {
   "use strict";

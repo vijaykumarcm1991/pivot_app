@@ -11,3 +11,7 @@ from app.models.app_log import AppLog                                    # noqa:
 from app.models.soft_deleted_record import SoftDeletedRecord            # noqa: F401
 from app.models.delete_audit import DeleteAudit                          # noqa: F401
 from app.models.deleted_dataset import DeletedDataset                    # noqa: F401
+# Saved pivots, scheduled reports, email templates
+from app.models.saved_pivot import SavedPivot                            # noqa: F401
+from app.models.report_schedule import ReportSchedule                    # noqa: F401
+from app.models.email_template import EmailTemplate                      # noqa: F401

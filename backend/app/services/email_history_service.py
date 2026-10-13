@@ -54,6 +54,8 @@ def serialize_history(row: EmailHistory) -> Dict[str, Any]:
         "error_message": row.error_message,
         "attachment_filename": row.attachment_filename,
         "has_attachment": has_attachment,
+        "source": row.source or "manual",
+        "schedule_id": row.schedule_id,
     }
 
 

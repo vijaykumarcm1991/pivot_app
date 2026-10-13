@@ -127,6 +127,38 @@ def validate_addresses(addresses: List[str], field: str) -> List[str]:
     return deduped
 
 
+PLACEHOLDERS = ("{date}", "{datetime}", "{dataset}", "{sheet}", "{rows}")
+
+
+def render_placeholders(text: str, request: EmailSendRequest) -> str:
+    """Replace the template placeholders in a subject / message.
+
+    {date} → 13 Oct 2026, {datetime} → 13 Oct 2026, 09:00 IST (app
+    timezone), {dataset}, {sheet}, {rows} (number of pivot rows).
+    Only these exact tokens are replaced, so other braces are left alone.
+    """
+    if not text or "{" not in text:
+        return text or ""
+    now = now_ist()
+    values = {
+        "{date}": now.strftime("%d %b %Y"),
+        "{datetime}": f"{now.strftime('%d %b %Y, %H:%M')} {now.tzname() or ''}".rstrip(),
+        "{dataset}": request.dataset_name or "",
+        "{sheet}": request.sheetName or "",
+        "{rows}": str(len(request.pivot_rows or request.selections or [])),
+    }
+    for token, value in values.items():
+        text = text.replace(token, value)
+    return text
+
+
+def _with_placeholders(request: EmailSendRequest) -> EmailSendRequest:
+    return request.model_copy(update={
+        "subject": render_placeholders(request.subject, request),
+        "message": render_placeholders(request.message, request),
+    })
+
+
 def validate_request(request: EmailSendRequest) -> Dict[str, List[str]]:
     """Validate the inbound request — addresses + subject.
     Returns a dict with the cleaned {to, cc, bcc} lists."""
@@ -155,6 +187,7 @@ def compose_preview(
     Returns an EmailResult the frontend can render and offer a
     download link for the attachment."""
 
+    request = _with_placeholders(request)
     cleaned = validate_request(request)
 
     # ── Build attachment ────────────────────────────────────────────
@@ -213,20 +246,27 @@ def compose_preview(
 def compose_and_send(
     db: Session,
     request: EmailSendRequest,
+    *,
+    source: str = "manual",
+    schedule_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Validate, build the attachment, build the HTML, send via
     SMTP, and record the outcome. Returns a small dict with the
     history id and status so the frontend can show a success or
-    error toast."""
+    error toast.
 
+    `source` / `schedule_id` tag the history row ("schedule" for
+    scheduled reports)."""
+
+    request = _with_placeholders(request)
     cleaned = validate_request(request)
 
     smtp = smtp_settings_repository.get_settings(db)
     if not is_complete(smtp):
         raise EmailValidationError(
-            "SMTP settings are incomplete. Open the Email Settings "
-            "page and fill in host, port, username, password, "
-            "sender name and sender email."
+            "SMTP settings are incomplete. Open the SMTP Settings "
+            "page and fill in the host, port and sender email (and a "
+            "password if you set a username)."
         )
 
     # ── Build attachment ────────────────────────────────────────────
@@ -280,7 +320,9 @@ def compose_and_send(
         status="failed",
         attachment_filename=attachment_filename,
         attachment_path=rel_path,
-        pivot_payload_json=json.dumps(_payload_snapshot(request)),
+        pivot_payload_json=json.dumps(_payload_snapshot(request), default=str),
+        source=source,
+        schedule_id=schedule_id,
     )
 
     # ── Send via SMTP ──────────────────────────────────────────────

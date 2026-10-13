@@ -173,7 +173,8 @@
         <tr>
           <td class="small text-nowrap">${escHtml(date)}</td>
           <td>
-            <div class="fw-medium">${escHtml(row.subject || "(no subject)")}</div>
+            <div class="fw-medium">${escHtml(row.subject || "(no subject)")}
+              ${row.source === "schedule" ? '<a href="/reports" class="badge bg-primary text-decoration-none ms-1" title="Sent by a scheduled report"><i class="bi bi-calendar-check me-1"></i>Scheduled</a>' : ""}</div>
             ${row.errorMessage ? `<div class="small text-danger mt-1" role="button" data-show-error="${row.id}">${escHtml(truncate(row.errorMessage, 80))}</div>` : ""}
           </td>
           <td>${recipientSummary}</td>

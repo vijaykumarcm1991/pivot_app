@@ -31,8 +31,8 @@
               <input id="smtpPort" type="number" class="form-control" min="1" max="65535" value="587" required>
             </div>
             <div class="col-md-6">
-              <label for="smtpUsername" class="form-label">Username</label>
-              <input id="smtpUsername" type="text" class="form-control" placeholder="user@example.com" required>
+              <label for="smtpUsername" class="form-label">Username <span class="text-muted fw-normal">(optional)</span></label>
+              <input id="smtpUsername" type="text" class="form-control" placeholder="Leave blank if the server needs no login">
             </div>
             <div class="col-md-6">
               <label for="smtpPassword" class="form-label">Password</label>
@@ -104,5 +104,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/smtp-settings.js?v=6"></script>
+<script src="/static/js/smtp-settings.js?v=7"></script>
 {% endblock %}

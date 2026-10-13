@@ -11,8 +11,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application source
+# Copy application source + database migrations
 COPY app/ app/
+COPY alembic.ini .
+COPY migrations/ migrations/
 
 # Create runtime directories
 RUN mkdir -p /app/uploads /app/generated_reports /app/data

@@ -16,3 +16,5 @@ class Dataset(Base):
     upload_time     = Column(DateTime, default=datetime.utcnow)
     total_rows      = Column(Integer, nullable=False, default=0)
     total_columns   = Column(Integer, nullable=False, default=0)
+    # Set when the file is replaced via "Refresh data" (same dataset id).
+    refreshed_at    = Column(DateTime, nullable=True)

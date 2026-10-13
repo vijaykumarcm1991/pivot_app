@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.config.database import get_db
@@ -40,7 +41,7 @@ from app.schemas.email import (
     SMTPSettingsIn,
     SMTPSettingsOut,
 )
-from app.services import email_history_service
+from app.services import email_history_service, email_template_service
 from app.services.email_service import (
     EmailResult,
     EmailValidationError,
@@ -134,8 +135,8 @@ def api_test_email(
     if not is_complete(settings):
         raise HTTPException(
             status_code=400,
-            detail="SMTP settings are incomplete. Fill in host, port, "
-                   "username, password, sender name and sender email first.",
+            detail="SMTP settings are incomplete. Fill in the host, port and "
+                   "sender email (and a password if you set a username) first.",
         )
 
     body = (
@@ -261,3 +262,58 @@ def api_history_attachment(history_id: int, db: Session = Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=row.attachment_filename or os.path.basename(abs_path),
     )
+
+
+# ── Email templates ─────────────────────────────────────────────────────
+
+class EmailTemplateIn(BaseModel):
+    name: str
+    subject: str = ""
+    message: str = ""
+    to: str = ""
+    cc: str = ""
+    bcc: str = ""
+
+
+def _template_or_404(db: Session, template_id: int):
+    row = email_template_service.get_template(db, template_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return row
+
+
+def _template_error(exc: "email_template_service.TemplateError"):
+    status = 409 if isinstance(exc, email_template_service.TemplateConflict) else 400
+    raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+
+@router.get("/api/email/templates")
+def api_list_templates(db: Session = Depends(get_db)):
+    return email_template_service.list_templates(db)
+
+
+@router.post("/api/email/templates", status_code=201)
+def api_create_template(payload: EmailTemplateIn, db: Session = Depends(get_db)):
+    try:
+        row = email_template_service.save_template(db, payload.model_dump())
+    except email_template_service.TemplateError as exc:
+        db.rollback()
+        _template_error(exc)
+    return email_template_service.serialize(row)
+
+
+@router.put("/api/email/templates/{template_id}")
+def api_update_template(template_id: int, payload: EmailTemplateIn, db: Session = Depends(get_db)):
+    row = _template_or_404(db, template_id)
+    try:
+        row = email_template_service.save_template(db, payload.model_dump(), row)
+    except email_template_service.TemplateError as exc:
+        db.rollback()
+        _template_error(exc)
+    return email_template_service.serialize(row)
+
+
+@router.delete("/api/email/templates/{template_id}")
+def api_delete_template(template_id: int, db: Session = Depends(get_db)):
+    email_template_service.delete_template(db, _template_or_404(db, template_id))
+    return {"deleted": template_id}

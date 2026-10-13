@@ -21,6 +21,7 @@ class DatasetCreate(DatasetBase):
 class DatasetOut(DatasetBase):
     id: int
     upload_time: datetime
+    refreshed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

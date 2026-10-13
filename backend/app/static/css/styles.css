@@ -1541,3 +1541,22 @@ body.pivot-fullscreen-active {
 /* Email preview pane keeps a light "paper" background — it shows the
    email exactly as recipients will see it. */
 .email-preview-frame, .email-preview-body { color-scheme: light; }
+
+/* A dialog opened from inside another dialog (e.g. "Save as template"
+   from the email composer) stacks above it. */
+.modal.show ~ .modal.show { z-index: 1065; }
+.modal-backdrop.show ~ .modal-backdrop.show { z-index: 1060; }
+
+/* Saved-pivot indicator next to the page title */
+.saved-pivot-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; font-weight: 500;
+  padding: 3px 10px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-text);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
+  vertical-align: middle;
+}
+#valueConditionList > div {
+  border-bottom: 1px dashed var(--border); padding: 6px 0; font-size: 0.82rem;
+}
+#valueConditionList > div:last-child { border-bottom: 0; }

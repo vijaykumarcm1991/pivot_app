@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.config.database import get_db
 from app.repositories import smtp_settings_repository
+from app.services.smtp_service import is_complete
 from app.services import app_settings_service
 from app.schemas.settings import AppSettingsIn, AppSettingsOut
 from app.services.app_logging import log_event
@@ -32,7 +33,7 @@ from app.templating import templates
 def settings_page(request: Request, db: Session = Depends(get_db)):
     """Render the application settings page."""
     smtp = smtp_settings_repository.get_or_create_settings(db)
-    smtp_configured = bool(smtp.password)
+    smtp_configured = is_complete(smtp)
     return templates.TemplateResponse(
         "settings.html",
         {

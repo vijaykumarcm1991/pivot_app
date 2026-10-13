@@ -14,7 +14,7 @@ Page endpoints:
 
 import os
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 from typing import List
@@ -35,7 +35,9 @@ from app.services.dataset_service import (
     get_sheet_preview,
     get_sheet_filter_values,
 )
-from app.services import metadata_cache
+from app.services import metadata_cache, saved_pivot_service
+from app.services.dataset_service import persist_sheet_metadata
+from app.utils.tz import iso_ist
 from app.services.app_logging import log_event
 
 router = APIRouter()
@@ -171,6 +173,7 @@ def api_delete_dataset(dataset_id: int, req: Request, db: Session = Depends(get_
         delete_sheets_by_dataset(db, dataset_id)
         db.query(SoftDeletedRecord).filter(SoftDeletedRecord.dataset_id == dataset_id).delete()
         db.query(DeleteAudit).filter(DeleteAudit.dataset_id == dataset_id).delete()
+        saved_pivot_service.delete_for_dataset(db, dataset_id)
         db.delete(dataset)
         db.commit()
 
@@ -213,3 +216,63 @@ def api_delete_dataset(dataset_id: int, req: Request, db: Session = Depends(get_
             request=req,
         )
         raise HTTPException(status_code=500, detail=f"Delete failed: {exc}")
+
+
+@router.post("/api/dataset/{dataset_id}/refresh")
+def api_refresh_dataset(
+    dataset_id: int,
+    req: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Replace a dataset's file with a new export, keeping the dataset id.
+
+    Soft-deleted records, saved pivots and scheduled reports stay attached
+    (records deleted before are still hidden if they appear in the new
+    file). Returns warnings for saved pivots that use sheets / columns the
+    new file no longer has.
+    """
+    from app.routes.upload_routes import _remove_quietly, ingest_upload
+
+    dataset = get_dataset_by_id(db, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    old_stored = dataset.stored_filename
+
+    stored_filename, save_path, meta = ingest_upload(file, db)
+    try:
+        delete_columns_by_dataset(db, dataset_id)
+        delete_sheets_by_dataset(db, dataset_id)
+        dataset.filename = file.filename or dataset.filename
+        dataset.stored_filename = stored_filename
+        dataset.total_rows = meta["total_rows"]
+        dataset.total_columns = meta["total_cols"]
+        dataset.refreshed_at = datetime.utcnow()
+        persist_sheet_metadata(  # commits the whole transaction
+            db,
+            dataset_id=dataset_id,
+            sheet_columns=meta["sheet_columns"],
+            sheet_row_counts={s.sheet_name: s.row_count for s in meta["sheets"]},
+        )
+    except Exception as exc:
+        db.rollback()
+        _remove_quietly(save_path)
+        log_event("error", "Dataset refresh failed", category="dataset",
+                  details=f"id={dataset_id}: {exc}", request=req)
+        raise HTTPException(status_code=500, detail=f"Refresh failed: {exc}") from exc
+
+    _remove_quietly(build_upload_path(old_stored, UPLOAD_DIR))
+    metadata_cache.invalidate_dataset(dataset_id)
+    warnings = saved_pivot_service.check_against_dataset(db, dataset_id)
+    db.refresh(dataset)
+    log_event("info", "Dataset refreshed", category="dataset",
+              details=f"id={dataset_id} file={dataset.filename} rows={dataset.total_rows}", request=req)
+    return {
+        "datasetId": dataset_id,
+        "filename": dataset.filename,
+        "totalRows": dataset.total_rows,
+        "totalColumns": dataset.total_columns,
+        "refreshedAt": dataset.refreshed_at.isoformat(),
+        "refreshedAtIst": iso_ist(dataset.refreshed_at),
+        "warnings": warnings,
+    }

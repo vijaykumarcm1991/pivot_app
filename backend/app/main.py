@@ -23,6 +23,8 @@ from app.routes.health_routes import router as health_router
 from app.routes.log_routes import router as log_router
 from app.routes.admin_routes import router as admin_router
 from app.routes.user_directory_routes import router as user_directory_router
+from app.routes.saved_pivot_routes import router as saved_pivot_router
+from app.routes.schedule_routes import router as schedule_router
 from app.services.app_logging import configure_logging, log_event
 from app.services import user_directory
 
@@ -94,6 +96,8 @@ app.include_router(health_router)
 app.include_router(log_router)
 app.include_router(admin_router)
 app.include_router(user_directory_router)
+app.include_router(saved_pivot_router)
+app.include_router(schedule_router)
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +109,7 @@ async def _add_cache_headers(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/static/") or request.url.path in (
         "/", "/pivot", "/manage", "/datasets", "/email/settings", "/email/history",
-        "/admin/cleanup", "/admin/audit", "/diagnostics", "/logs", "/settings",
+        "/admin/cleanup", "/admin/audit", "/diagnostics", "/logs", "/settings", "/reports",
     ):
         response.headers["Cache-Control"] = "no-store, must-revalidate"
     return response
@@ -190,12 +194,20 @@ async def internal_error_handler(request: Request, exc):
 @app.on_event("startup")
 def on_startup():
     """Initialise the database on first run."""
-    from app.models import (  # noqa: F401
-        dataset, sheet, column,
-        smtp_settings, email_history, recent_recipient,
-        app_settings, app_log, soft_deleted_record, delete_audit, deleted_dataset,
-    )
+    from app import models as _models  # noqa: F401  (registers every model)
     init_db()
+    # Encrypt an SMTP password saved in plaintext by an older version.
+    try:
+        from app.config.database import SessionLocal
+        from app.repositories.smtp_settings_repository import encrypt_legacy_password
+        _db = SessionLocal()
+        try:
+            if encrypt_legacy_password(_db):
+                log_event("info", "SMTP password encrypted at rest", category="startup")
+        finally:
+            _db.close()
+    except Exception as exc:
+        log_event("error", "SMTP password encryption failed", category="startup", details=str(exc))
     # Load the user directory (Users.csv + DistributionLists.csv)
     # into memory so the email composer's typeahead works on the
     # first request.  The service silently no-ops if the files are
@@ -230,10 +242,14 @@ def on_startup():
             category="startup",
             details=str(exc),
         )
+    from app.services import scheduler_service
+    scheduler_service.start()
     log_event("info", "Application started", details=f"version {__import__('app.models.app_settings', fromlist=['APP_VERSION']).APP_VERSION}")
 
 
 @app.on_event("shutdown")
 def on_shutdown():
+    from app.services import scheduler_service
+    scheduler_service.stop()
     log_event("info", "Application stopped")
     logging.shutdown()

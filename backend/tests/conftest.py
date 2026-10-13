@@ -22,6 +22,7 @@ for _name, _sub in (
 os.environ["DB_PATH"] = os.path.join(_TMP, "data", "pivot.db")
 os.environ["USERS_CSV_PATH"] = os.path.join(_TMP, "Users.csv")
 os.environ["DISTRIBUTION_LISTS_CSV_PATH"] = os.path.join(_TMP, "DistributionLists.csv")
+os.environ["SCHEDULER_ENABLED"] = "0"  # tests call run_due() explicitly
 os.environ.pop("APP_AUTH_USERNAME", None)
 os.environ.pop("APP_AUTH_PASSWORD", None)
 

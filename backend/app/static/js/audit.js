@@ -56,13 +56,19 @@
           <td class="text-end">${r.sourceRecordsFound}</td>
           <td class="text-end">${r.sourceRecordsDeleted}</td>
           <td>${statusBadge(r.status)}</td>
-          <td>
-            <button class="btn btn-sm btn-outline-secondary" data-detail='${escAttr(JSON.stringify(r))}'>
+          <td class="text-end text-nowrap">
+            ${r.restorable ? `<button class="btn btn-sm btn-outline-primary" data-restore="${r.id}" title="Undo this delete — the records reappear">
+              <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+            </button>` : ""}
+            <button class="btn btn-sm btn-outline-secondary" data-detail='${escAttr(JSON.stringify(r))}' title="Details">
               <i class="bi bi-eye"></i>
             </button>
           </td>
         </tr>
       `).join("");
+      rowsEl.querySelectorAll("button[data-restore]").forEach(btn => {
+        btn.addEventListener("click", () => restore(rows.find(r => String(r.id) === btn.dataset.restore), btn));
+      });
       rowsEl.querySelectorAll("button[data-detail]").forEach(btn => {
         btn.addEventListener("click", () => {
           const data = JSON.parse(btn.getAttribute("data-detail"));
@@ -72,8 +78,25 @@
       });
     }
 
+    async function restore(r, btn) {
+      const ok = await window.AppUI.confirm({
+        title: "Restore deleted records?",
+        body: `The ${r.sourceRecordsDeleted} record(s) deleted from “${r.datasetName}” at ${formatDate(r.timestamp)} will appear again in pivots, drill-downs, exports and emails.`,
+        confirmText: "Restore",
+      });
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        const res = await window.AppUI.fetchJSON(`/api/admin/audit/${r.id}/restore`, { method: "POST" });
+        window.AppUI.toast(`Restored ${res.restored} record(s).`, { type: "success" });
+      } catch (err) {
+        window.AppUI.toast(`Restore failed: ${err.message}`, { type: "error", timeout: 8000 });
+      }
+      load();
+    }
+
     function statusBadge(s) {
-      const map = { success: "success", failed: "danger", in_progress: "warning" };
+      const map = { success: "success", failed: "danger", in_progress: "warning", restored: "info" };
       const cls = map[(s || "").toLowerCase()] || "secondary";
       return `<span class="badge bg-${cls}-subtle text-${cls} border">${escHtml(s || "")}</span>`;
     }

@@ -19,7 +19,8 @@ from sqlalchemy.orm import Session
 from app.config.database import get_db
 from app.models.app_settings import APP_VERSION
 from app.services.cleanup_service import preview_cleanup, run_cleanup
-from app.services.soft_delete_service import list_audit
+from fastapi import HTTPException
+from app.services.soft_delete_service import SoftDeleteError, list_audit, restore_audit
 from app.services.app_logging import log_event
 
 
@@ -78,3 +79,13 @@ def api_audit(
         "rows": rows,
         "count": len(rows),
     }
+
+
+@router.post("/api/admin/audit/{audit_id}/restore")
+def api_audit_restore(audit_id: int, db: Session = Depends(get_db)):
+    """Undo a Delete Records action (records reappear)."""
+    try:
+        return restore_audit(db, audit_id)
+    except SoftDeleteError as exc:
+        status = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc

@@ -52,7 +52,7 @@
   {# SheetJS — used by the grid "Export" buttons. #}
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-  <link rel="stylesheet" href="/static/css/styles.css?v=6" />
+  <link rel="stylesheet" href="/static/css/styles.css?v=7" />
 </head>
 {% set path = request.url.path if request else "" %}
 {% macro nav_link(href, icon, label, match=None) -%}
@@ -93,6 +93,7 @@
         <div class="side-group">
           <div class="side-heading">Email</div>
           {{ nav_link("/email/settings", "bi-envelope-at", "SMTP Settings") }}
+          {{ nav_link("/reports", "bi-calendar-check", "Scheduled Reports") }}
           {{ nav_link("/email/history", "bi-send-check", "Sent History") }}
         </div>
         <div class="side-group">
@@ -136,9 +137,9 @@
   <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
-  <script src="/static/js/theme.js?v=6"></script>
-  <script src="/static/js/format.js?v=6"></script>
-  <script src="/static/js/ui.js?v=6"></script>
+  <script src="/static/js/theme.js?v=7"></script>
+  <script src="/static/js/format.js?v=7"></script>
+  <script src="/static/js/ui.js?v=7"></script>
 
   {% block scripts %}{% endblock %}
 </body>

@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Scheduled reports — {{ app_name() }}{% endblock %}
+
+{% block content %}
+
+<header class="page-header">
+  <div>
+    <div class="page-eyebrow">Email</div>
+    <h1 class="page-title">Scheduled reports</h1>
+    <p class="page-subtitle">Email a saved pivot automatically — every row of the result, with the matching records attached. Use a saved pivot's Top N or thresholds to control which rows are sent.</p>
+  </div>
+  <div class="page-actions">
+    <button type="button" class="btn btn-primary" id="newScheduleBtn"><i class="bi bi-plus-lg me-1"></i>New schedule</button>
+  </div>
+</header>
+
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <span>Schedules</span>
+    <span class="badge bg-secondary" id="scheduleCount">0</span>
+    <span class="ms-auto small text-muted fw-normal">Times are in <span id="tzLabel">the app timezone</span></span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Saved pivot</th>
+            <th>When</th>
+            <th>Recipients</th>
+            <th>Next run</th>
+            <th>Last run</th>
+            <th class="text-center">On</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="scheduleRows">
+          <tr><td colspan="8" class="text-center text-muted py-4">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex align-items-center gap-2">
+    <span>Saved pivots</span>
+    <span class="badge bg-secondary" id="savedCount">0</span>
+    <a href="/pivot" class="btn btn-sm btn-outline-secondary ms-auto"><i class="bi bi-grid-3x3-gap me-1"></i>Pivot Builder</a>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr><th>Name</th><th>Dataset / sheet</th><th>Updated</th><th class="text-end">Schedules</th><th class="text-end">Actions</th></tr>
+        </thead>
+        <tbody id="savedRows">
+          <tr><td colspan="5" class="text-center text-muted py-4">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="scheduleModal" tabindex="-1" aria-labelledby="scheduleModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" id="scheduleForm" novalidate>
+      <div class="modal-header">
+        <h5 class="modal-title" id="scheduleModalLabel">New schedule</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="scheduleError" class="alert alert-danger d-none" role="alert"></div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="sName">Name</label>
+            <input id="sName" class="form-control" maxlength="120" placeholder="Daily alerts to Ops" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="sSaved">Saved pivot</label>
+            <select id="sSaved" class="form-select" required></select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label" for="sFrequency">Repeat</label>
+            <select id="sFrequency" class="form-select">
+              <option value="weekdays">Every weekday (Mon–Fri)</option>
+              <option value="daily">Every day</option>
+              <option value="weekly">Weekly on…</option>
+              <option value="monthly">Monthly on day…</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" for="sTime">Time</label>
+            <input id="sTime" type="time" class="form-control" value="09:00" required>
+          </div>
+          <div class="col-md-5" id="sWeekdaysWrap">
+            <div class="form-label">Days</div>
+            <div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="Days of week" id="sWeekdays"></div>
+          </div>
+          <div class="col-md-3" id="sDayWrap">
+            <label class="form-label" for="sDay">Day of month</label>
+            <input id="sDay" type="number" class="form-control" min="1" max="28" value="1">
+          </div>
+
+          <div class="col-12"><hr class="my-1"></div>
+
+          <div class="col-md-6">
+            <label class="form-label" for="sTemplate">Fill from template</label>
+            <select id="sTemplate" class="form-select"><option value="">— none —</option></select>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="sTo">To</label>
+            <input id="sTo" class="form-control" placeholder="ops@example.com, team-dl@example.com">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="sCc">CC</label>
+            <input id="sCc" class="form-control" placeholder="(optional)">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="sBcc">BCC</label>
+            <input id="sBcc" class="form-control" placeholder="(optional)">
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="sSubject">Subject</label>
+            <input id="sSubject" class="form-control" placeholder="Daily alerts — {date}" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="sMessage">Message</label>
+            <textarea id="sMessage" class="form-control" rows="4"></textarea>
+            <div class="form-text">Placeholders: <code>{date}</code> <code>{datetime}</code> <code>{dataset}</code> <code>{sheet}</code> <code>{rows}</code></div>
+          </div>
+          <div class="col-md-6">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="sSkipEmpty" checked>
+              <label class="form-check-label" for="sSkipEmpty">Don't send when the pivot is empty</label>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="sEnabled" checked>
+              <label class="form-check-label" for="sEnabled">Enabled</label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="sSaveBtn">Save schedule</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/reports.js?v=7"></script>
+{% endblock %}

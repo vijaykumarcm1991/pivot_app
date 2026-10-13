@@ -41,7 +41,9 @@ from app.schemas.pivot import (
     PivotResponse,
     PivotMetadata,
     PivotValue,
+    TopN,
     TotalsOptions,
+    ValueFilters,
 )
 from app.services import metadata_cache
 from app.services.excel_service import load_sheet_df
@@ -122,6 +124,8 @@ def build_pivot(db: Session, request: PivotRequest) -> PivotResponse:
     value_specs = _normalise_values(request.values, df)
     group_rows, group_columns, grouped_labels = _prepare_group_fields(df, request)
     filtered_df = _apply_filters(df, request.filters)
+    value_filters = request.value_filters or ValueFilters()
+    filtered_df = _apply_value_filters(filtered_df, group_rows, value_specs, grouped_labels, value_filters)
     filtered_rows = len(filtered_df)
 
     totals_opts: TotalsOptions = request.totals or TotalsOptions()
@@ -144,6 +148,7 @@ def build_pivot(db: Session, request: PivotRequest) -> PivotResponse:
             request.layout,
             sorting=request.sorting,
             show_subtotals=bool(totals_opts.show_subtotals),
+            order_by=value_filters.top_n,
         )
 
         if totals_opts.show_column_totals and group_rows:
@@ -185,6 +190,7 @@ def build_pivot(db: Session, request: PivotRequest) -> PivotResponse:
             sorting=dict(request.sorting or {}),
             totals=totals_opts,
             display_options=display_opts,
+            value_filters=value_filters,
         ),
         aggregations=[
             {
@@ -624,6 +630,80 @@ def _sort_key(series: pd.Series) -> pd.Series:
     return series.map(key)
 
 
+_VALUE_OPS = {
+    "gt":  lambda s, v: s > v,
+    "gte": lambda s, v: s >= v,
+    "lt":  lambda s, v: s < v,
+    "lte": lambda s, v: s <= v,
+    "eq":  lambda s, v: s == v,
+    "ne":  lambda s, v: s != v,
+}
+
+
+def _value_series(frame: pd.DataFrame, label: str) -> Optional[pd.Series]:
+    """Numeric values of `label` in a pivot frame. A frame with column
+    groups has no single `label` column; its `row_total` (present when
+    there is exactly one value spec) is the row's overall value."""
+    if label in frame.columns:
+        return pd.to_numeric(frame[label], errors="coerce")
+    if "row_total" in frame.columns:
+        return pd.to_numeric(frame["row_total"], errors="coerce")
+    return None
+
+
+def _apply_value_filters(
+    df: pd.DataFrame,
+    group_rows: List[str],
+    value_specs: List[PivotValue],
+    grouped_labels: Dict[str, str],
+    value_filters: ValueFilters,
+) -> pd.DataFrame:
+    """Keep only the source records of row groups that pass the value
+    filters (threshold conditions, then Top / Bottom N).
+
+    Each row group's value is aggregated across all column groups, so a
+    "top 10 by sum_Alerts" ranks rows by their row total. Filtering the
+    records (not just the output rows) keeps subtotals and grand totals
+    consistent with what is shown."""
+    if not group_rows or df.empty:
+        return df
+    conditions = list(value_filters.conditions or [])
+    top_n = value_filters.top_n
+    if not conditions and top_n is None:
+        return df
+
+    labels = {_value_label(spec) for spec in value_specs}
+    for name in [c.by for c in conditions] + ([top_n.by] if top_n else []):
+        if name not in labels:
+            raise PivotError(f"Value filter field not found: {name} (use one of: {', '.join(sorted(labels))})")
+
+    groups = _pivot_frame(df, group_rows, [], value_specs, grouped_labels)
+    keep = pd.Series(True, index=groups.index)
+    for cond in conditions:
+        op = _VALUE_OPS.get((cond.op or "").lower())
+        if op is None:
+            raise PivotError(f"Unsupported value filter operator: {cond.op}")
+        keep &= op(_value_series(groups, cond.by), float(cond.value)).fillna(False)
+    groups = groups[keep]
+    if top_n is not None:
+        if top_n.direction not in {"top", "bottom"}:
+            raise PivotError(f"Unsupported Top N direction: {top_n.direction}")
+        groups = (
+            groups.assign(__rank=_value_series(groups, top_n.by))
+            .sort_values("__rank", ascending=top_n.direction == "bottom", na_position="last", kind="mergesort")
+            .head(int(top_n.n))
+        )
+
+    row_cols = [_display_group_name(f, grouped_labels) for f in group_rows]
+    keys = groups[row_cols].rename(columns=dict(zip(row_cols, group_rows))).drop_duplicates()
+    work = _fill_group_nulls(df, group_rows)
+    kept_index = (
+        work[group_rows].reset_index()
+        .merge(keys, on=group_rows, how="inner")["index"]
+    )
+    return df.loc[df.index.isin(kept_index)]
+
+
 def _compute_pivot_rows(
     df: pd.DataFrame,
     group_rows: List[str],
@@ -633,6 +713,7 @@ def _compute_pivot_rows(
     layout: str,
     sorting: Optional[Dict[str, str]] = None,
     show_subtotals: bool = False,
+    order_by: Optional[TopN] = None,
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
     if not group_rows and not group_columns:
         row = {
@@ -679,6 +760,19 @@ def _compute_pivot_rows(
                 key=_sort_key,
                 kind="mergesort",
             ).reset_index(drop=True)
+
+    # A Top N list reads best ranked by its value. Only for a single row
+    # field — with several, rows stay grouped hierarchically.
+    if order_by is not None and len(row_cols) == 1 and not sorting:
+        rank = _value_series(leaf, order_by.by)
+        if rank is not None:
+            leaf = (
+                leaf.assign(__rank=rank)
+                .sort_values("__rank", ascending=order_by.direction == "bottom",
+                             na_position="last", kind="mergesort")
+                .drop(columns="__rank")
+                .reset_index(drop=True)
+            )
 
     rows = _df_to_records(leaf)
     for r in rows:

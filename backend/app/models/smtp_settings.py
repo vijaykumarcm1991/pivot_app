@@ -22,7 +22,7 @@ class SMTPSettings(Base):
     host         = Column(String, nullable=False, default="")
     port         = Column(Integer, nullable=False, default=587)
     username     = Column(String, nullable=False, default="")
-    # NOTE: plaintext for Version 1. See module docstring.
+    # Encrypted ("enc:v1:…") by smtp_settings_repository; see app.utils.secret_box.
     password     = Column(String, nullable=False, default="")
     use_tls      = Column(Boolean, nullable=False, default=True)
     sender_name  = Column(String, nullable=False, default="")

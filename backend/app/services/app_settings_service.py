@@ -70,8 +70,13 @@ def update_from_payload(db: Session, payload: Dict[str, Any]):
         fields["default_export_dir"] = (payload.get("defaultExportDir") or "").strip()
     if not fields:
         return repo.get_or_create_settings(db)
+    old_tz = repo.get_or_create_settings(db).timezone
     row = repo.upsert_settings(db, **fields)
     invalidate_timezone_cache()
+    if "timezone" in fields and fields["timezone"] != old_tz:
+        # Scheduled reports run at a wall-clock time in this timezone.
+        from app.services.scheduler_service import reschedule_all
+        reschedule_all(db)
     from app.templating import invalidate_app_name
     invalidate_app_name()
     return row

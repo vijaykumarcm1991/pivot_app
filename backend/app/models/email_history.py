@@ -36,3 +36,6 @@ class EmailHistory(Base):
     # Original pivot payload (JSON) — kept so future phases can re-render
     # the email body from the history page without re-querying the dataset.
     pivot_payload_json      = Column(Text, nullable=True)
+    # "manual" (composer) or "schedule" (report_schedules.id in schedule_id)
+    source                  = Column(String, nullable=False, default="manual")
+    schedule_id             = Column(Integer, nullable=True, index=True)

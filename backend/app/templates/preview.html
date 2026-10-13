@@ -12,12 +12,16 @@
       </ol>
     </nav>
     <h1 class="page-title text-break">{{ dataset.filename }}</h1>
-    <p class="page-subtitle">Uploaded {{ dataset.upload_time_ist }}</p>
+    <p class="page-subtitle">Uploaded {{ dataset.upload_time_ist }}{% if dataset.refreshed_at %} · data refreshed {{ dataset.refreshed_at_ist }}{% endif %}</p>
   </div>
   <div class="page-actions">
     <button class="btn btn-outline-danger" data-delete-dataset-id="{{ dataset.id }}"
             data-delete-dataset-name="{{ dataset.filename }}" data-after-delete="/datasets">
       <i class="bi bi-trash me-1"></i>Delete
+    </button>
+    <button class="btn btn-outline-secondary" data-refresh-dataset-id="{{ dataset.id }}" data-refresh-dataset-name="{{ dataset.filename }}"
+            title="Replace this dataset's data with a new export">
+      <i class="bi bi-arrow-repeat me-1"></i>Refresh data
     </button>
     <a href="/manage?dataset_id={{ dataset.id }}" class="btn btn-outline-secondary"><i class="bi bi-sliders2 me-1"></i>Manage</a>
     <a href="/pivot?dataset_id={{ dataset.id }}" class="btn btn-primary"><i class="bi bi-grid-3x3-gap me-1"></i>Open in Pivot Builder</a>
@@ -119,5 +123,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/dataset-actions.js?v=6"></script>
+<script src="/static/js/dataset-actions.js?v=7"></script>
 {% endblock %}

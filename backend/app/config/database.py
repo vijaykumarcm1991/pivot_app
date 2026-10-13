@@ -33,7 +33,22 @@ def get_db():
 
 
 def init_db():
-    """Create all tables defined in models (called at startup)."""
-    # Import models so SQLAlchemy sees them before create_all
-    from app.models import dataset  # noqa: F401
-    Base.metadata.create_all(bind=engine)
+    """Bring the database schema up to date (called at startup).
+
+    Uses Alembic migrations in backend/migrations. A database created by
+    an older version of the app (via `create_all`, before migrations
+    existed) has tables but no `alembic_version` row; it is stamped at the
+    baseline revision first so only the newer migrations run.
+    """
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect
+
+    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    cfg = Config(os.path.join(backend_dir, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(backend_dir, "migrations"))
+
+    tables = set(inspect(engine).get_table_names())
+    if "alembic_version" not in tables and "datasets" in tables:
+        command.stamp(cfg, "0001_baseline")
+    command.upgrade(cfg, "head")

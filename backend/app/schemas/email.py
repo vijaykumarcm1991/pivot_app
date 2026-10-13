@@ -175,6 +175,8 @@ class EmailHistoryOut(BaseModel):
     error_message: Optional[str] = Field(default=None, alias="errorMessage")
     attachment_filename: Optional[str] = Field(default=None, alias="attachmentFilename")
     has_attachment: bool = Field(alias="hasAttachment")
+    source: str = "manual"
+    schedule_id: Optional[int] = Field(default=None, alias="scheduleId")
 
 
 # ── Recent recipients ────────────────────────────────────────────────────

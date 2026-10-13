@@ -69,6 +69,33 @@ class DisplayOptions(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ValueCondition(BaseModel):
+    """Keep pivot rows whose aggregated value satisfies `op value`."""
+    by: str                       # a value label, e.g. "sum_Alerts"
+    op: str = "gt"                # gt | gte | lt | lte | eq | ne
+    value: float = 0
+
+    model_config = {"populate_by_name": True}
+
+
+class TopN(BaseModel):
+    """Keep only the N highest (or lowest) pivot rows by a value."""
+    by: str
+    n: int = Field(default=10, ge=1, le=10000)
+    direction: str = "top"        # top | bottom
+
+    model_config = {"populate_by_name": True}
+
+
+class ValueFilters(BaseModel):
+    """Filters on aggregated values (applied to the row groups, after the
+    normal field filters). Totals reflect only the rows that remain."""
+    top_n: Optional[TopN] = Field(default=None, alias="topN")
+    conditions: List[ValueCondition] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
+
+
 class PivotRequest(BaseModel):
     """Request contract for the pivot engine (used by compute + validate)."""
 
@@ -86,6 +113,7 @@ class PivotRequest(BaseModel):
     # Phase 7 addition — display options (number/date format, conditional
     # formats, frozen + hidden columns). Default empty; safe no-op.
     display_options: DisplayOptions = Field(default_factory=DisplayOptions, alias="displayOptions")
+    value_filters: ValueFilters = Field(default_factory=ValueFilters, alias="valueFilters")
 
     model_config = {"populate_by_name": True}
 
@@ -102,6 +130,7 @@ class PivotMetadata(BaseModel):
     sorting: Dict[str, str] = Field(default_factory=dict)
     totals: TotalsOptions = Field(default_factory=TotalsOptions)
     display_options: DisplayOptions = Field(default_factory=DisplayOptions)
+    value_filters: ValueFilters = Field(default_factory=ValueFilters)
 
 
 class PivotResponse(BaseModel):
